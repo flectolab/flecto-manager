@@ -1,0 +1,103 @@
+enum DraftChangeType {
+    CREATE
+    UPDATE
+    DELETE
+    PUBLISHED
+}
+
+type RedirectDraft {
+    id: Int64!
+    project: Project!
+    oldRedirect: Redirect
+    newRedirect: RedirectBase
+    changeType: DraftChangeType!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+type RedirectDraftList {
+    items: [RedirectDraft!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+type RedirectCheckResult {
+    redirectMatched: RedirectBase
+    url: String!
+    target: String!
+    matched: Boolean!
+}
+
+input RedirectDraftFilter {
+    search: String
+    status: RedirectStatus!
+}
+
+input CreateRedirectDraft {
+    oldRedirectID: Int64
+    newRedirect: RedirectBaseInput
+}
+
+input UpdateRedirectDraft {
+    newRedirect: RedirectBaseInput!
+}
+
+input RedirectCheck {
+    redirect: RedirectBaseInput
+    urls: [String!]!
+}
+
+enum RedirectScope {
+    SINGLE
+    PROJECT
+    PROJECT_WITH_DRAFT
+}
+
+# Import types
+enum ImportErrorReason {
+    INVALID_FORMAT
+    INVALID_REDIRECT
+    INVALID_TYPE
+    INVALID_STATUS
+    EMPTY_SOURCE
+    EMPTY_TARGET
+    DUPLICATE_SOURCE_IN_FILE
+    SOURCE_ALREADY_EXISTS
+    DATABASE_ERROR
+}
+
+type ImportRedirectError {
+    line: Int!
+    source: String
+    target: String
+    reason: ImportErrorReason!
+    message: String!
+}
+
+type ImportRedirectResult {
+    success: Boolean!
+    totalLines: Int!
+    importedCount: Int!
+    skippedCount: Int!
+    errorCount: Int!
+    errors: [ImportRedirectError!]!
+}
+
+input ImportRedirectInput {
+    overwrite: Boolean! = true
+}
+
+extend type Mutation {
+    createRedirectDraft(namespaceCode: String!, projectCode: String!, input: CreateRedirectDraft!): RedirectDraft!
+    updateRedirectDraft(namespaceCode: String!, projectCode: String!, redirectDraftID: Int64!, input: UpdateRedirectDraft!): RedirectDraft!
+    deleteRedirectDraft(namespaceCode: String!, projectCode: String!, redirectDraftID: Int64!): Boolean!
+    rollbackRedirectDraft(namespaceCode: String!, projectCode: String!): Boolean!
+    importRedirectDraft(namespaceCode: String!, projectCode: String!, file: Upload!, input: ImportRedirectInput): ImportRedirectResult!
+}
+
+extend type Query {
+    projectsRedirectDrafts(namespaceCode: String!, projectCode: String!, pagination: PaginationInput, filter: RedirectDraftFilter): RedirectDraftList!
+    projectRedirectDraft(namespaceCode: String!, projectCode: String!, redirectDraftID: Int64!): RedirectDraft!
+    projectRedirectDraftCheck(namespaceCode: String!, projectCode: String!, redirectCheck: RedirectCheck!, scope: RedirectScope = SINGLE): [RedirectCheckResult!]!
+}

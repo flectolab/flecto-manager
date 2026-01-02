@@ -1,0 +1,144 @@
+# gqlgen configuration
+# https://gqlgen.com/config/
+
+schema:
+  - graph/schema/*.graphqls
+
+exec:
+  filename: graph/generated.go
+  package: graph
+
+model:
+  filename: graph/models_gen.go
+  package: graph
+
+models:
+  DateTime:
+    model:
+      - github.com/99designs/gqlgen/graphql.Time
+  Duration:
+    model:
+      - github.com/99designs/gqlgen/graphql.Duration
+  Int64:
+    model: github.com/99designs/gqlgen/graphql.Int64
+
+  SortDirection:
+    model: github.com/flectolab/flecto-manager/database.SortDirection
+  SortInput:
+    model: github.com/flectolab/flecto-manager/database.SortInput
+
+  # Namespaces types
+  Namespace:
+    model: github.com/flectolab/flecto-manager/model.Namespace
+  NamespaceList:
+    model: github.com/flectolab/flecto-manager/model.NamespaceList
+
+  # Projects types
+  Project:
+    model: github.com/flectolab/flecto-manager/model.Project
+  ProjectList:
+    model: github.com/flectolab/flecto-manager/model.ProjectList
+
+  # Users types
+  User:
+    model: github.com/flectolab/flecto-manager/model.User
+    fields:
+      active:
+        resolver: true
+  Me:
+    model: github.com/flectolab/flecto-manager/model.User
+    fields:
+      active:
+        resolver: true
+  UserList:
+    model: github.com/flectolab/flecto-manager/model.UserList
+
+
+  # Permissions types
+  Role:
+    model: github.com/flectolab/flecto-manager/model.Role
+  RoleList:
+    model: github.com/flectolab/flecto-manager/model.RoleList
+  RoleType:
+    model: github.com/flectolab/flecto-manager/model.RoleType
+  SectionType:
+    model: github.com/flectolab/flecto-manager/model.SectionType
+  ActionType:
+    model: github.com/flectolab/flecto-manager/model.ActionType
+  ResourcePermission:
+    model: github.com/flectolab/flecto-manager/model.ResourcePermission
+  ResourceType:
+    model: github.com/flectolab/flecto-manager/model.ResourceType
+  AdminPermission:
+    model: github.com/flectolab/flecto-manager/model.AdminPermission
+  SubjectPermissions:
+    model: github.com/flectolab/flecto-manager/model.SubjectPermissions
+
+  # Redirect types
+  Redirect:
+    model: github.com/flectolab/flecto-manager/model.Redirect
+  RedirectList:
+    model: github.com/flectolab/flecto-manager/model.RedirectList
+  RedirectDraft:
+    model: github.com/flectolab/flecto-manager/model.RedirectDraft
+  RedirectDraftList:
+    model: github.com/flectolab/flecto-manager/model.RedirectDraftList
+  DraftChangeType:
+    model: github.com/flectolab/flecto-manager/model.DraftChangeType
+
+  # Page types
+  Page:
+    model: github.com/flectolab/flecto-manager/model.Page
+  PageList:
+    model: github.com/flectolab/flecto-manager/model.PageList
+  PageDraft:
+    model: github.com/flectolab/flecto-manager/model.PageDraft
+  PageDraftList:
+    model: github.com/flectolab/flecto-manager/model.PageDraftList
+
+  # Agents types
+  Agent:
+    model: github.com/flectolab/flecto-manager/model.Agent
+  AgentList:
+    model: github.com/flectolab/flecto-manager/model.AgentList
+
+  # Types common
+  PaginationInput:
+    model: github.com/flectolab/flecto-manager/common/types.PaginationInput
+  PaginatedResult:
+    model: github.com/flectolab/flecto-manager/common/types.PaginatedResult
+  RedirectBase:
+    model: github.com/flectolab/flecto-manager/common/types.Redirect
+  RedirectBaseInput:
+    model: github.com/flectolab/flecto-manager/common/types.Redirect
+  RedirectType:
+    model: github.com/flectolab/flecto-manager/common/types.RedirectType
+  RedirectStatus:
+    model: github.com/flectolab/flecto-manager/common/types.RedirectStatus
+  PageBase:
+    model: github.com/flectolab/flecto-manager/common/types.Page
+  PageBaseInput:
+    model: github.com/flectolab/flecto-manager/common/types.Page
+  PageType:
+    model: github.com/flectolab/flecto-manager/common/types.PageType
+  PageContentType:
+    model: github.com/flectolab/flecto-manager/common/types.PageContentType
+  AgentBase:
+    model: github.com/flectolab/flecto-manager/common/types.Agent
+  AgentType:
+    model: github.com/flectolab/flecto-manager/common/types.AgentType
+  AgentStatus:
+    model: github.com/flectolab/flecto-manager/common/types.AgentStatus
+
+
+resolver:
+  layout: follow-schema
+  dir: graph/resolver
+  package: resolver
+  filename_template: "{name}.resolvers.go"
+
+directives:
+  public:
+    skip_runtime: false
+
+omit_slice_element_pointers: true

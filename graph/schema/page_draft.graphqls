@@ -1,0 +1,45 @@
+
+type PageDraft {
+    id: Int64!
+    project: Project!
+    oldPage: Page
+    newPage: PageBase
+    changeType: DraftChangeType!
+    contentSize: Int64!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+type PageDraftList {
+    items: [PageDraft!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input PageDraftFilter {
+    search: String
+    types: [PageType!]
+    contentTypes: [PageContentType!]
+}
+
+input CreatePageDraft {
+    oldPageID: Int64
+    newPage: PageBaseInput
+}
+
+input UpdatePageDraft {
+    newPage: PageBaseInput!
+}
+
+extend type Mutation {
+    createPageDraft(namespaceCode: String!, projectCode: String!, input: CreatePageDraft!): PageDraft!
+    updatePageDraft(namespaceCode: String!, projectCode: String!, pageDraftID: Int64!, input: UpdatePageDraft!): PageDraft!
+    deletePageDraft(namespaceCode: String!, projectCode: String!, pageDraftID: Int64!): Boolean!
+    rollbackPageDraft(namespaceCode: String!, projectCode: String!): Boolean!
+}
+
+extend type Query {
+    projectsPageDrafts(namespaceCode: String!, projectCode: String!, pagination: PaginationInput, filter: PageDraftFilter): PageDraftList!
+    projectPageDraft(namespaceCode: String!, projectCode: String!, pageDraftID: Int64!): PageDraft!
+}
