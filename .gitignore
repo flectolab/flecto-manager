@@ -1,0 +1,12 @@
+.DS_Store
+/.idea/
+/.vscode/
+
+/mocks/
+/tmp/
+/dist/
+
+/coverage.*
+
+/graph/generated.go
+/graph/models_gen.go
