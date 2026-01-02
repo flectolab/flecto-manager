@@ -1,0 +1,16 @@
+#!/bin/sh
+set -e
+
+FLECTO_MANAGER_CONFIG_PATH="${FLECTO_MANAGER_CONFIG_PATH:-/etc/flecto/manager.yaml}"
+
+if [ -n "${FLECTO_MANAGER_CFG}" ]; then
+  echo "Writing config from FLECTO_MANAGER_CFG to ${FLECTO_MANAGER_CONFIG_PATH}"
+  mkdir -p "$(dirname "${FLECTO_MANAGER_CONFIG_PATH}")"
+  echo "${FLECTO_MANAGER_CFG}" > "${FLECTO_MANAGER_CONFIG_PATH}"
+fi
+
+if [ -z "$1" ]; then
+    exec /usr/local/bin/flecto-manager start --level "${LOG_LEVEL:-INFO}" -c "${FLECTO_MANAGER_CONFIG_PATH}"
+else
+    exec "$@"
+fi

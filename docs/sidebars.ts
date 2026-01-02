@@ -1,0 +1,36 @@
+import type { SidebarsConfig } from '@docusaurus/plugin-content-docs';
+
+const sidebars: SidebarsConfig = {
+  docsSidebar: [
+    'intro',
+    'getting-started',
+    {
+      type: 'category',
+      label: 'Installation',
+      items: ['installation/docker', 'installation/binary'],
+    },
+    'configuration',
+    'cli',
+    {
+      type: 'category',
+      label: 'Interface',
+      items: ['interface/project', 'interface/admin'],
+    },
+    {
+      type: 'category',
+      label: 'Features',
+      items: [
+        'features/redirects',
+        'features/pages',
+        'features/agents',
+      ],
+    },
+    {
+      type: 'category',
+      label: 'API',
+      items: ['api/authentication', 'api/rest'],
+    },
+  ],
+};
+
+export default sidebars;

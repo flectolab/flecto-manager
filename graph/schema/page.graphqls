@@ -1,0 +1,35 @@
+
+
+type Page {
+  id: Int64!
+  type: PageType!
+  isPublished: Boolean!
+  publishedAt: DateTime
+  path: String
+  content: String
+  contentType: PageContentType
+  contentSize: Int64!
+  project: Project!
+  pageDraft: PageDraft
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type PageList {
+    items: [Page!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input PageFilter {
+    search: String
+    types: [PageType!]
+    contentTypes: [PageContentType!]
+    draftStatus: [DraftChangeType!]
+}
+
+extend type Query {
+    projectsPages(namespaceCode: String!, projectCode: String!, pagination: PaginationInput, filter: PageFilter, sort: [SortInput!]): PageList!
+    projectPage(namespaceCode: String!, projectCode: String!, pageID: Int64!): Page!
+}

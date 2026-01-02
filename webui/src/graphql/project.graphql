@@ -1,0 +1,56 @@
+query GetProject($namespaceCode: String!, $projectCode: String!) {
+  project(namespaceCode: $namespaceCode, projectCode: $projectCode) {
+    projectCode
+    name
+    version
+    countRedirects
+    countRedirectDrafts
+    countPages
+    countPageDrafts
+    totalPageContentSize
+    totalPageContentSizeLimit
+    countAgentError
+    createdAt
+    updatedAt
+    publishedAt
+    namespace {
+      namespaceCode
+      name
+    }
+  }
+}
+
+query SearchProjects($pagination: PaginationInput, $filter: ProjectFilter!, $sort: [SortInput!]) {
+  searchProjects(pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      projectCode
+      name
+      createdAt
+      updatedAt
+      namespace {
+        namespaceCode
+        name
+      }
+    }
+    total
+    limit
+    offset
+  }
+}
+
+mutation CreateProject($namespaceCode: String!, $input: CreateProjectInput!) {
+  createProject(namespaceCode: $namespaceCode, input: $input) {
+    projectCode
+    name
+  }
+}
+
+mutation UpdateProject($namespaceCode: String!, $projectCode: String!, $input: UpdateProjectInput!) {
+  updateProject(namespaceCode: $namespaceCode, projectCode: $projectCode, input: $input) {
+    name
+  }
+}
+
+mutation DeleteProject($namespaceCode: String!, $projectCode: String!) {
+  deleteProject(namespaceCode: $namespaceCode, projectCode: $projectCode)
+}

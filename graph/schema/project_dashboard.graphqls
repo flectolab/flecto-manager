@@ -1,0 +1,57 @@
+type ProjectDashboard {
+    # Project info
+    version: Int!
+    publishedAt: DateTime
+
+    # Redirect stats
+    redirectStats: RedirectStats!
+
+    # Redirect draft stats
+    redirectDraftStats: RedirectDraftStats!
+
+    # Page stats
+    pageStats: PageStats!
+
+    # Page draft stats
+    pageDraftStats: PageDraftStats!
+
+    # Agent stats
+    agentStats: AgentStats!
+}
+
+type RedirectStats {
+    total: Int64!
+    countBasic: Int64!
+    countBasicHost: Int64!
+    countRegex: Int64!
+    countRegexHost: Int64!
+}
+
+type RedirectDraftStats {
+    total: Int64!
+    countCreate: Int64!
+    countUpdate: Int64!
+    countDelete: Int64!
+}
+
+type PageStats {
+    total: Int64!
+    countBasic: Int64!
+    countBasicHost: Int64!
+}
+
+type PageDraftStats {
+    total: Int64!
+    countCreate: Int64!
+    countUpdate: Int64!
+    countDelete: Int64!
+}
+
+type AgentStats {
+    totalOnline: Int64!
+    countError: Int64!
+}
+
+extend type Query {
+    projectDashboard(namespaceCode: String!, projectCode: String!): ProjectDashboard!
+}

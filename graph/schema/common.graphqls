@@ -1,0 +1,87 @@
+directive @public on FIELD_DEFINITION
+
+scalar DateTime
+scalar Duration
+scalar Int64
+scalar Upload
+
+enum RedirectType {
+    BASIC
+    BASIC_HOST
+    REGEX
+    REGEX_HOST
+}
+
+enum RedirectStatus {
+    MOVED_PERMANENT
+    FOUND
+    TEMPORARY_REDIRECT
+    PERMANENT_REDIRECT
+}
+
+enum PageType {
+    BASIC
+    BASIC_HOST
+}
+
+enum PageContentType {
+    TEXT_PLAIN
+    XML
+}
+
+
+input PaginationInput {
+  limit: Int = 20
+  offset: Int = 0
+}
+
+enum SortDirection {
+  ASC
+  DESC
+}
+
+enum AgentType {
+    default
+    traefik
+}
+
+enum AgentStatus {
+    success
+    error
+}
+
+input SortInput {
+  column: String!
+  direction: SortDirection!
+}
+
+type RedirectBase {
+    type: RedirectType!
+    source: String!
+    target: String!
+    status: RedirectStatus!
+}
+
+input RedirectBaseInput {
+    type: RedirectType!
+    source: String!
+    target: String!
+    status: RedirectStatus!
+}
+
+type PageBase {
+    type: PageType!
+    path: String!
+    content: String!
+    contentType: PageContentType!
+}
+
+input PageBaseInput {
+    type: PageType!
+    path: String!
+    content: String!
+    contentType: PageContentType!
+}
+
+type Query
+type Mutation

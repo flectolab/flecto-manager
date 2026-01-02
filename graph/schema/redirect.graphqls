@@ -1,0 +1,34 @@
+
+
+type Redirect {
+  id: Int64!
+  type: RedirectType!
+  isPublished: Boolean!
+  publishedAt: DateTime
+  source: String
+  target: String!
+  status: RedirectStatus!
+  project: Project!
+  redirectDraft: RedirectDraft
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+type RedirectList {
+    items: [Redirect!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input RedirectFilter {
+    search: String
+    types: [RedirectType!]
+    status: [RedirectStatus!]
+    draftStatus: [DraftChangeType!]
+}
+
+extend type Query {
+    projectsRedirects(namespaceCode: String!, projectCode: String!, pagination: PaginationInput, filter: RedirectFilter, sort: [SortInput!]): RedirectList!
+    projectRedirect(namespaceCode: String!, projectCode: String!, redirectID: Int64!): Redirect!
+}

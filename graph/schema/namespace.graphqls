@@ -1,0 +1,38 @@
+type Namespace {
+    namespaceCode: String!
+    name: String!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    projects: [Project!]!
+}
+
+type NamespaceList {
+    items: [Namespace!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input NamespaceFilter {
+    search: String
+}
+
+input CreateNamespaceInput {
+    namespaceCode: String!
+    name: String!
+}
+
+input UpdateNamespaceInput {
+    name: String!
+}
+
+extend type Mutation {
+    createNamespace(input: CreateNamespaceInput!): Namespace!
+    updateNamespace(namespaceCode: String!, input: UpdateNamespaceInput!): Namespace!
+    deleteNamespace(namespaceCode: String!): Boolean!
+}
+extend type Query {
+    namespaces: [Namespace!]!
+    namespace(namespaceCode: String!): Namespace
+    searchNamespaces(pagination: PaginationInput, filter: NamespaceFilter!, sort: [SortInput!]): NamespaceList!
+}

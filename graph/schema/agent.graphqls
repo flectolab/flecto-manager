@@ -1,0 +1,29 @@
+type Agent {
+    name: String!
+    type: AgentType!
+    status: AgentStatus!
+    version: Int!
+    error: String
+    load_duration: Int64!
+    lastHitAt: DateTime!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+type AgentList {
+    items: [Agent!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input AgentFilter {
+    search: String
+    types: [AgentType!]
+    status: [AgentStatus!]
+    showOffline: Boolean
+}
+
+extend type Query {
+    searchAgents(namespaceCode: String!, projectCode: String!, pagination: PaginationInput, filter: AgentFilter!, sort: [SortInput!]): AgentList!
+}

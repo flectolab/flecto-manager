@@ -1,0 +1,50 @@
+type Token {
+    id: Int64!
+    name: String!
+    tokenPreview: String!
+    expiresAt: DateTime
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    role: Role
+}
+
+# Response type for token creation - includes the plain token (shown only once)
+type TokenCreateResponse {
+    token: Token!
+    plainToken: String!
+}
+
+input TokenFilter {
+    search: String
+}
+
+type TokenList {
+    items: [Token!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input CreateTokenInput {
+    name: String!
+    expiresAt: DateTime
+    resourcePermissions: [ResourcePermissionInput!]
+    adminPermissions: [AdminPermissionInput!]
+}
+
+input UpdateTokenPermissionsInput {
+    resourcePermissions: [ResourcePermissionInput!]!
+    adminPermissions: [AdminPermissionInput!]!
+}
+
+extend type Mutation {
+    createToken(input: CreateTokenInput!): TokenCreateResponse!
+    updateTokenPermissions(id: Int64!, input: UpdateTokenPermissionsInput!): Token!
+    deleteToken(id: Int64!): Boolean!
+}
+
+extend type Query {
+    tokens: [Token!]!
+    token(id: Int64!): Token!
+    searchTokens(pagination: PaginationInput, filter: TokenFilter!, sort: [SortInput!]): TokenList!
+}

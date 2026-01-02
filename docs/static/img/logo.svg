@@ -1,0 +1,55 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="purple" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8b5cf6"/>
+      <stop offset="100%" style="stop-color:#6366f1"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#06b6d4"/>
+      <stop offset="100%" style="stop-color:#0ea5e9"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Fond -->
+  <rect width="128" height="128" rx="24" fill="#0f172a"/>
+  
+  <!-- Flèche 1 (violet) - part du bas gauche, courbe vers haut droit -->
+  <g>
+    <path 
+      d="M 25 90 Q 50 90 64 64 Q 78 38 95 38" 
+      stroke="url(#purple)" 
+      stroke-width="8" 
+      fill="none"
+      stroke-linecap="round"
+    />
+    <path 
+      d="M 85 28 L 98 38 L 85 48" 
+      stroke="url(#purple)" 
+      stroke-width="8" 
+      fill="none"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <circle cx="25" cy="90" r="6" fill="url(#purple)"/>
+  </g>
+  
+  <!-- Flèche 2 (cyan) - part du haut gauche, courbe vers bas droit -->
+  <g>
+    <path 
+      d="M 25 38 Q 50 38 64 64 Q 78 90 95 90" 
+      stroke="url(#cyan)" 
+      stroke-width="8" 
+      fill="none"
+      stroke-linecap="round"
+    />
+    <path 
+      d="M 85 80 L 98 90 L 85 100" 
+      stroke="url(#cyan)" 
+      stroke-width="8" 
+      fill="none"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <circle cx="25" cy="38" r="6" fill="url(#cyan)"/>
+  </g>
+</svg>

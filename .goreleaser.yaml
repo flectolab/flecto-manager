@@ -1,0 +1,79 @@
+version: 2
+
+project_name: flecto-manager
+
+builds:
+  - id: flecto-manager
+    main: .
+    binary: flecto-manager
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/flectolab/flecto-manager/version.Version={{.Tag}}
+      - -X github.com/flectolab/flecto-manager/version.Commit={{.ShortCommit}}
+
+archives:
+  - id: tar
+    formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+
+  - id: binary
+    formats:
+      - binary
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+dockers_v2:
+  - ids:
+      - flecto-manager
+    images:
+      - "ghcr.io/flectolab/flecto-manager"
+    tags:
+      - "{{ .Tag }}"
+    dockerfile: Dockerfile
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    extra_files:
+      - docker-entrypoint
+    labels:
+      "org.opencontainers.image.title": "{{ .ProjectName }}"
+      "org.opencontainers.image.description": "Flecto Manager - HTTP redirect and traffic routing management"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.source": "{{ .GitURL }}"
+
+release:
+  github:
+    owner: flectolab
+    name: flecto-manager
+  draft: false
+  prerelease: auto
+  name_template: "{{ .Tag }}"
