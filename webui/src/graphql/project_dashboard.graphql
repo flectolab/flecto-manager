@@ -1,0 +1,34 @@
+query GetProjectDashboard($namespaceCode: String!, $projectCode: String!) {
+  projectDashboard(namespaceCode: $namespaceCode, projectCode: $projectCode) {
+    version
+    publishedAt
+    redirectStats {
+      total
+      countBasic
+      countBasicHost
+      countRegex
+      countRegexHost
+    }
+    redirectDraftStats {
+      total
+      countCreate
+      countUpdate
+      countDelete
+    }
+    pageStats {
+      total
+      countBasic
+      countBasicHost
+    }
+    pageDraftStats {
+      total
+      countCreate
+      countUpdate
+      countDelete
+    }
+    agentStats {
+      totalOnline
+      countError
+    }
+  }
+}

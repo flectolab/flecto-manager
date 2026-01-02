@@ -1,0 +1,107 @@
+query SearchTokens($pagination: PaginationInput, $filter: TokenFilter!, $sort: [SortInput!]) {
+  searchTokens(pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      id
+      name
+      tokenPreview
+      expiresAt
+      createdAt
+      updatedAt
+      role {
+        code
+        resources {
+          namespace
+          project
+          resource
+          action
+        }
+        admin {
+          section
+          action
+        }
+      }
+    }
+    total
+    limit
+    offset
+  }
+}
+
+query GetToken($id: Int64!) {
+  token(id: $id) {
+    id
+    name
+    tokenPreview
+    expiresAt
+    createdAt
+    updatedAt
+    role {
+      code
+      resources {
+        namespace
+        project
+        resource
+        action
+      }
+      admin {
+        section
+        action
+      }
+    }
+  }
+}
+
+mutation CreateToken($input: CreateTokenInput!) {
+  createToken(input: $input) {
+    token {
+      id
+      name
+      tokenPreview
+      expiresAt
+      createdAt
+      updatedAt
+      role {
+        code
+        resources {
+          namespace
+          project
+          resource
+          action
+        }
+        admin {
+          section
+          action
+        }
+      }
+    }
+    plainToken
+  }
+}
+
+mutation UpdateTokenPermissions($id: Int64!, $input: UpdateTokenPermissionsInput!) {
+  updateTokenPermissions(id: $id, input: $input) {
+    id
+    name
+    tokenPreview
+    expiresAt
+    createdAt
+    updatedAt
+    role {
+      code
+      resources {
+        namespace
+        project
+        resource
+        action
+      }
+      admin {
+        section
+        action
+      }
+    }
+  }
+}
+
+mutation DeleteToken($id: Int64!) {
+  deleteToken(id: $id)
+}

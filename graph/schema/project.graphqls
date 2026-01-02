@@ -1,0 +1,49 @@
+type Project {
+    projectCode: String!
+    namespace: Namespace!
+    name: String!
+    version: Int!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    publishedAt: DateTime
+    countRedirects: Int64!
+    countRedirectDrafts: Int64!
+    countPages: Int64!
+    countPageDrafts: Int64!
+    totalPageContentSize: Int64!
+    totalPageContentSizeLimit: Int64!
+    countAgentError: Int64!
+}
+
+type ProjectList {
+    items: [Project!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input ProjectFilter {
+    search: String
+    namespaceCode: String
+}
+
+input CreateProjectInput {
+    projectCode: String!
+    name: String!
+}
+
+input UpdateProjectInput {
+    name: String!
+}
+
+extend type Mutation {
+    createProject(namespaceCode: String!, input: CreateProjectInput): Project!
+    updateProject(namespaceCode: String!, projectCode: String!, input: UpdateProjectInput): Project!
+    deleteProject(namespaceCode: String!, projectCode: String!): Boolean!
+    publishProject(namespaceCode: String!, projectCode: String!): Project!
+}
+
+extend type Query {
+    searchProjects(pagination: PaginationInput, filter: ProjectFilter!, sort: [SortInput!]): ProjectList!
+    project(namespaceCode: String!, projectCode: String!): Project
+}

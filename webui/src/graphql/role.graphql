@@ -1,0 +1,135 @@
+query GetRolesWithPermissions {
+  roles {
+    code
+    type
+    resources {
+      namespace
+      project
+      resource
+      action
+    }
+    admin {
+      section
+      action
+    }
+  }
+}
+
+query SearchRoles($pagination: PaginationInput, $filter: RoleFilter!, $sort: [SortInput!]) {
+  searchRoles(pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      code
+      type
+      createdAt
+      updatedAt
+      resources {
+        namespace
+        project
+        resource
+        action
+      }
+      admin {
+        section
+        action
+      }
+    }
+    total
+    limit
+    offset
+  }
+}
+
+query GetRole($code: String!) {
+  role(code: $code) {
+    code
+    type
+    createdAt
+    updatedAt
+    resources {
+      namespace
+      project
+      resource
+      action
+    }
+    admin {
+      section
+      action
+    }
+  }
+}
+
+mutation CreateRole($input: CreateRoleInput!) {
+  createRole(input: $input) {
+    code
+    type
+    createdAt
+    updatedAt
+    resources {
+      namespace
+      project
+      resource
+      action
+    }
+    admin {
+      section
+      action
+    }
+  }
+}
+
+mutation UpdateRole($code: String!, $input: UpdateRoleInput!) {
+  updateRole(code: $code, input: $input) {
+    code
+    type
+    createdAt
+    updatedAt
+    resources {
+      namespace
+      project
+      resource
+      action
+    }
+    admin {
+      section
+      action
+    }
+  }
+}
+
+mutation DeleteRole($code: String!) {
+  deleteRole(code: $code)
+}
+
+query GetRoleUsers($code: String!, $pagination: PaginationInput, $filter: RoleUsersFilter, $sort: [SortInput!]) {
+  roleUsers(code: $code, pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      id
+      username
+      firstname
+      lastname
+      active
+      createdAt
+      updatedAt
+    }
+    total
+    limit
+    offset
+  }
+}
+
+query GetUsersNotInRole($code: String!, $search: String!, $limit: Int) {
+  usersNotInRole(code: $code, search: $search, limit: $limit) {
+    id
+    username
+    firstname
+    lastname
+  }
+}
+
+mutation AddUserToRole($roleCode: String!, $userId: Int64!) {
+  addUserToRole(roleCode: $roleCode, userId: $userId)
+}
+
+mutation RemoveUserFromRole($roleCode: String!, $userId: Int64!) {
+  removeUserFromRole(roleCode: $roleCode, userId: $userId)
+}

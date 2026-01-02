@@ -1,0 +1,143 @@
+# Queries
+query GetProjectPages($namespaceCode: String!, $projectCode: String!, $pagination: PaginationInput, $filter: PageFilter, $sort: [SortInput!]) {
+  projectsPages(namespaceCode: $namespaceCode, projectCode: $projectCode, pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      id
+      type
+      path
+      content
+      contentType
+      contentSize
+      createdAt
+      updatedAt
+      pageDraft {
+        id
+        changeType
+        newPage {
+          type
+          path
+          content
+          contentType
+        }
+      }
+    }
+    total
+    limit
+    offset
+  }
+}
+
+query GetProjectPage($namespaceCode: String!, $projectCode: String!, $pageID: Int64!) {
+  projectPage(namespaceCode: $namespaceCode, projectCode: $projectCode, pageID: $pageID) {
+    id
+    type
+    path
+    content
+    contentType
+    contentSize
+    isPublished
+    publishedAt
+    createdAt
+    updatedAt
+    pageDraft {
+      id
+      changeType
+      newPage {
+        type
+        path
+        content
+        contentType
+      }
+      createdAt
+      updatedAt
+    }
+  }
+}
+
+query GetProjectPageDraft($namespaceCode: String!, $projectCode: String!, $pageDraftID: Int64!) {
+  projectPageDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, pageDraftID: $pageDraftID) {
+    id
+    changeType
+    oldPage {
+      id
+      type
+      path
+      content
+      contentType
+      contentSize
+      createdAt
+      updatedAt
+    }
+    newPage {
+      type
+      path
+      content
+      contentType
+    }
+    createdAt
+    updatedAt
+  }
+}
+
+query GetProjectPageDrafts($namespaceCode: String!, $projectCode: String!, $pagination: PaginationInput, $filter: PageDraftFilter) {
+  projectsPageDrafts(namespaceCode: $namespaceCode, projectCode: $projectCode, pagination: $pagination, filter: $filter) {
+    items {
+      id
+      changeType
+      oldPage {
+        id
+        type
+        path
+        content
+        contentType
+      }
+      newPage {
+        type
+        path
+        content
+        contentType
+      }
+      createdAt
+      updatedAt
+    }
+    total
+    limit
+    offset
+  }
+}
+
+# Mutations
+mutation CreatePageDraft($namespaceCode: String!, $projectCode: String!, $input: CreatePageDraft!) {
+  createPageDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, input: $input) {
+    id
+    oldPage {
+      id
+    }
+    newPage {
+      type
+      path
+      content
+      contentType
+    }
+  }
+}
+
+mutation UpdatePageDraft($namespaceCode: String!, $projectCode: String!, $pageDraftID: Int64!, $input: UpdatePageDraft!) {
+  updatePageDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, pageDraftID: $pageDraftID, input: $input) {
+    id
+    newPage {
+      type
+      path
+      content
+      contentType
+    }
+  }
+}
+
+mutation DeletePageDraft($namespaceCode: String!, $projectCode: String!, $pageDraftID: Int64!) {
+  deletePageDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, pageDraftID: $pageDraftID)
+}
+
+mutation RollbackPageDraft($namespaceCode: String!, $projectCode: String!) {
+  rollbackPageDraft(namespaceCode: $namespaceCode, projectCode: $projectCode)
+}

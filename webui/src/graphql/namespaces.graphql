@@ -1,0 +1,59 @@
+query GetNamespaces {
+  namespaces {
+    namespaceCode
+    name
+    projects {
+      projectCode
+      name
+    }
+  }
+}
+
+query GetNamespace($namespaceCode: String!) {
+  namespace(namespaceCode: $namespaceCode) {
+    namespaceCode
+    name
+    createdAt
+    updatedAt
+    projects {
+      projectCode
+      name
+    }
+  }
+}
+
+query SearchNamespaces($pagination: PaginationInput, $filter: NamespaceFilter!, $sort: [SortInput!]) {
+  searchNamespaces(pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      namespaceCode
+      name
+      createdAt
+      updatedAt
+      projects {
+        projectCode
+        name
+      }
+    }
+    total
+    limit
+    offset
+  }
+}
+
+mutation CreateNamespace($input: CreateNamespaceInput!) {
+  createNamespace(input: $input) {
+    namespaceCode
+    name
+  }
+}
+
+mutation UpdateNamespace($namespaceCode: String!, $input: UpdateNamespaceInput!) {
+  updateNamespace(namespaceCode: $namespaceCode, input: $input) {
+    namespaceCode
+    name
+  }
+}
+
+mutation DeleteNamespace($namespaceCode: String!) {
+  deleteNamespace(namespaceCode: $namespaceCode)
+}

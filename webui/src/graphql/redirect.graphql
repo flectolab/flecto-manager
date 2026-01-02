@@ -1,0 +1,181 @@
+# Queries
+# RedirectFilter: types: [RedirectType!], status: [RedirectStatus!], draftStatus: [DraftChangeType!]
+query GetProjectRedirects($namespaceCode: String!, $projectCode: String!, $pagination: PaginationInput, $filter: RedirectFilter, $sort: [SortInput!]) {
+  projectsRedirects(namespaceCode: $namespaceCode, projectCode: $projectCode, pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      id
+      type
+      source
+      target
+      status
+      createdAt
+      updatedAt
+      redirectDraft {
+        id
+        changeType
+        newRedirect {
+          type
+          source
+          target
+          status
+        }
+      }
+    }
+    total
+    limit
+    offset
+  }
+}
+
+query GetProjectRedirect($namespaceCode: String!, $projectCode: String!, $redirectID: Int64!) {
+  projectRedirect(namespaceCode: $namespaceCode, projectCode: $projectCode, redirectID: $redirectID) {
+    id
+    type
+    source
+    target
+    status
+    isPublished
+    publishedAt
+    createdAt
+    updatedAt
+    redirectDraft {
+      id
+      changeType
+      newRedirect {
+        type
+        source
+        target
+        status
+      }
+      createdAt
+      updatedAt
+    }
+  }
+}
+
+query GetProjectRedirectDraft($namespaceCode: String!, $projectCode: String!, $redirectDraftID: Int64!) {
+  projectRedirectDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, redirectDraftID: $redirectDraftID) {
+    id
+    changeType
+    oldRedirect {
+      id
+      type
+      source
+      target
+      status
+      createdAt
+      updatedAt
+    }
+    newRedirect {
+      type
+      source
+      target
+      status
+    }
+    createdAt
+    updatedAt
+  }
+}
+
+query GetProjectRedirectDrafts($namespaceCode: String!, $projectCode: String!, $pagination: PaginationInput, $filter: RedirectDraftFilter) {
+  projectsRedirectDrafts(namespaceCode: $namespaceCode, projectCode: $projectCode, pagination: $pagination, filter: $filter) {
+    items {
+      id
+      changeType
+      oldRedirect {
+        id
+        type
+        source
+        target
+        status
+      }
+      newRedirect {
+        type
+        source
+        target
+        status
+      }
+      createdAt
+      updatedAt
+    }
+    total
+    limit
+    offset
+  }
+}
+
+# Mutations
+mutation CreateRedirectDraft($namespaceCode: String!, $projectCode: String!, $input: CreateRedirectDraft!) {
+  createRedirectDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, input: $input) {
+    id
+    oldRedirect {
+      id
+    }
+    newRedirect {
+      type
+      source
+      target
+      status
+    }
+  }
+}
+
+mutation UpdateRedirectDraft($namespaceCode: String!, $projectCode: String!, $redirectDraftID: Int64!, $input: UpdateRedirectDraft!) {
+  updateRedirectDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, redirectDraftID: $redirectDraftID, input: $input) {
+    id
+    newRedirect {
+      type
+      source
+      target
+      status
+    }
+  }
+}
+
+mutation DeleteRedirectDraft($namespaceCode: String!, $projectCode: String!, $redirectDraftID: Int64!) {
+  deleteRedirectDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, redirectDraftID: $redirectDraftID)
+}
+
+mutation PublishProject($namespaceCode: String!, $projectCode: String!) {
+  publishProject(namespaceCode: $namespaceCode, projectCode: $projectCode) {
+    projectCode
+    name
+    version
+    countRedirectDrafts
+  }
+}
+
+mutation ImportRedirectDraft($namespaceCode: String!, $projectCode: String!, $file: Upload!, $input: ImportRedirectInput) {
+  importRedirectDraft(namespaceCode: $namespaceCode, projectCode: $projectCode, file: $file, input: $input) {
+    success
+    totalLines
+    importedCount
+    skippedCount
+    errorCount
+    errors {
+      line
+      source
+      target
+      reason
+      message
+    }
+  }
+}
+
+mutation RollbackRedirectDraft($namespaceCode: String!, $projectCode: String!) {
+  rollbackRedirectDraft(namespaceCode: $namespaceCode, projectCode: $projectCode)
+}
+
+query CheckRedirect($namespaceCode: String!, $projectCode: String!, $redirectCheck: RedirectCheck!, $scope: RedirectScope) {
+  projectRedirectDraftCheck(namespaceCode: $namespaceCode, projectCode: $projectCode, redirectCheck: $redirectCheck, scope: $scope) {
+    url
+    target
+    matched
+    redirectMatched {
+      type
+      source
+      target
+      status
+    }
+  }
+}

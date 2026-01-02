@@ -1,0 +1,74 @@
+type ResourcePermission {
+    namespace: String!
+    project: String!
+    resource: String!
+    action: String!
+}
+
+type AdminPermission {
+    section: String!
+    action: String!
+}
+
+type Role {
+    code: String!
+    type: String!
+    resources: [ResourcePermission!]!
+    admin: [AdminPermission!]!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+input RoleFilter {
+    search: String
+}
+
+type RoleList {
+    items: [Role!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input ResourcePermissionInput {
+    namespace: String!
+    project: String!
+    resource: String!
+    action: String!
+}
+
+input AdminPermissionInput {
+    section: String!
+    action: String!
+}
+
+input CreateRoleInput {
+    code: String!
+    resourcePermissions: [ResourcePermissionInput!]
+    adminPermissions: [AdminPermissionInput!]
+}
+
+input UpdateRoleInput {
+    resourcePermissions: [ResourcePermissionInput!]!
+    adminPermissions: [AdminPermissionInput!]!
+}
+
+input RoleUsersFilter {
+    search: String
+}
+
+extend type Query {
+    roles: [Role!]!
+    role(code: String!): Role!
+    searchRoles(pagination: PaginationInput, filter: RoleFilter!, sort: [SortInput!]): RoleList!
+    roleUsers(code: String!, pagination: PaginationInput, filter: RoleUsersFilter, sort: [SortInput!]): UserList!
+    usersNotInRole(code: String!, search: String!, limit: Int): [User!]!
+}
+
+extend type Mutation {
+    createRole(input: CreateRoleInput!): Role!
+    updateRole(code: String!, input: UpdateRoleInput!): Role!
+    deleteRole(code: String!): Boolean!
+    addUserToRole(roleCode: String!, userId: Int64!): Boolean!
+    removeUserFromRole(roleCode: String!, userId: Int64!): Boolean!
+}

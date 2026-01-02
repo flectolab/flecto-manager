@@ -1,0 +1,87 @@
+
+type SubjectPermissions {
+    resources: [ResourcePermission!]!
+    admin: [AdminPermission!]!
+}
+
+type User {
+    id: Int64!
+    username: String!
+    firstname: String
+    lastname: String
+    active: Boolean!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    roles: [Role!]!
+}
+
+type Me {
+    id: Int64!
+    username: String!
+    firstname: String
+    lastname: String
+    active: Boolean!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+    permissions: SubjectPermissions!
+}
+
+type UserList {
+    items: [User!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input UserFilter {
+    search: String
+    active: Boolean
+}
+
+input CreateUserInput {
+    username: String!
+    password: String!
+    firstname: String!
+    lastname: String!
+}
+
+input UpdateUserInput {
+    firstname: String!
+    lastname: String!
+}
+
+input UpdateUserStatusInput {
+    active: Boolean
+}
+
+input UpdateUserPasswordInput {
+    newPassword: String!
+}
+
+input MeUpdatePasswordInput {
+    oldPassword: String!
+    newPassword: String!
+}
+
+input SubjectPermissionsInput {
+    resources: [ResourcePermissionInput!]!
+    admin: [AdminPermissionInput!]!
+    roles: [String!]!
+}
+
+extend type Mutation {
+    createUser(input: CreateUserInput!): User!
+    updateUser(id: Int64!, input: UpdateUserInput!): User!
+    updateUserPermissions(id: Int64!, input: SubjectPermissionsInput!): User!
+    updateUserStatus(id: Int64!, input: UpdateUserStatusInput!): User!
+    updateUserPassword(id: Int64!, input: UpdateUserPasswordInput!): User!
+    deleteUser(id: Int64!): Boolean!
+    meUpdatePassword(input: MeUpdatePasswordInput!): User!
+}
+
+extend type Query {
+    me: Me!
+    users(pagination: PaginationInput): UserList!
+    searchUsers(pagination: PaginationInput, filter: UserFilter!, sort: [SortInput!]): UserList!
+    user(username: String!): User
+}

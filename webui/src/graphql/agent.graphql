@@ -1,0 +1,18 @@
+query SearchAgents($namespaceCode: String!, $projectCode: String!, $pagination: PaginationInput, $filter: AgentFilter!, $sort: [SortInput!]) {
+  searchAgents(namespaceCode: $namespaceCode, projectCode: $projectCode, pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      name
+      type
+      status
+      version
+      error
+      load_duration
+      lastHitAt
+      createdAt
+      updatedAt
+    }
+    total
+    limit
+    offset
+  }
+}
