@@ -1,0 +1,124 @@
+query GetMe {
+  me {
+    id
+    username
+    firstname
+    lastname
+    permissions {
+      resources {
+        type
+        namespace
+        project
+        action
+      }
+      admin {
+       type
+        section
+        action
+      }
+    }
+  }
+}
+
+query GetUser($username: String!) {
+  user(username: $username) {
+    id
+    username
+    firstname
+    lastname
+    active
+    createdAt
+    updatedAt
+    roles
+    permissions {
+      resources {
+        type
+        namespace
+        project
+        action
+      }
+      admin {
+        type
+        section
+        action
+      }
+    }
+  }
+}
+
+query GetUsers($pagination: PaginationInput) {
+  users(pagination: $pagination) {
+    items {
+      id
+      username
+      firstname
+      lastname
+      active
+    }
+    total
+    limit
+    offset
+  }
+}
+
+query SearchUsers($pagination: PaginationInput, $filter: UserFilter!, $sort: [SortInput!]) {
+  searchUsers(pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      id
+      username
+      firstname
+      lastname
+      active
+      createdAt
+      updatedAt
+    }
+    total
+    limit
+    offset
+  }
+}
+
+mutation CreateUser($input: CreateUserInput!) {
+  createUser(input: $input) {
+    id
+    username
+    firstname
+    lastname
+    active
+  }
+}
+
+mutation UpdateUser($id: Int64!, $input: UpdateUserInput!) {
+  updateUser(id: $id, input: $input) {
+    id
+    username
+    firstname
+    lastname
+    active
+  }
+}
+
+mutation UpdateUserStatus($id: Int64!, $input: UpdateUserStatusInput!) {
+  updateUserStatus(id: $id, input: $input) {
+    id
+    username
+    active
+  }
+}
+
+mutation DeleteUser($id: Int64!) {
+  deleteUser(id: $id)
+}
+
+query GetRoles {
+  roles {
+    name
+  }
+}
+
+mutation UpdateUserPermissions($id: Int64!, $input: SubjectPermissionsInput!) {
+  updateUserPermissions(id: $id, input: $input) {
+    id
+    roles
+  }
+}

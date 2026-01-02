@@ -1,0 +1,99 @@
+query GetRolesWithPermissions {
+  roles {
+    name
+    resources {
+      type
+      namespace
+      project
+      action
+    }
+    admin {
+      type
+      section
+      action
+    }
+  }
+}
+
+query SearchRoles($pagination: PaginationInput, $filter: RoleFilter!, $sort: [SortInput!]) {
+  searchRoles(pagination: $pagination, filter: $filter, sort: $sort) {
+    items {
+      name
+      createdAt
+      updatedAt
+      resources {
+        type
+        namespace
+        project
+        action
+      }
+      admin {
+        type
+        section
+        action
+      }
+    }
+    total
+    limit
+    offset
+  }
+}
+
+query GetRole($name: String!) {
+  role(name: $name) {
+    name
+    resources {
+      type
+      namespace
+      project
+      action
+    }
+    admin {
+      type
+      section
+      action
+    }
+  }
+}
+
+mutation CreateRole($input: CreateRoleInput!) {
+  createRole(input: $input) {
+    name
+    createdAt
+    updatedAt
+    resources {
+      type
+      namespace
+      project
+      action
+    }
+    admin {
+      type
+      section
+      action
+    }
+  }
+}
+
+mutation UpdateRole($name: String!, $input: UpdateRoleInput!) {
+  updateRole(name: $name, input: $input) {
+    name
+    createdAt
+    updatedAt
+    resources {
+      type
+      namespace
+      project
+      action
+    }
+    admin {
+      type
+      section
+      action
+    }
+  }
+}
+
+mutation DeleteRole($name: String!) {
+  deleteRole(name: $name)
+}

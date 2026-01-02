@@ -1,0 +1,65 @@
+type ResourcePermission {
+    type: String!
+    namespace: String!
+    project: String!
+    action: String!
+}
+
+type AdminPermission {
+    type: String!
+    section: String!
+    action: String!
+}
+
+type Role {
+    name: String!
+    resources: [ResourcePermission!]!
+    admin: [AdminPermission!]!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+input RoleFilter {
+    search: String
+}
+
+type RoleList {
+    items: [Role!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input ResourcePermissionInput {
+    namespace: String!
+    project: String!
+    action: String!
+}
+
+input AdminPermissionInput {
+    section: String!
+    action: String!
+}
+
+input CreateRoleInput {
+    name: String!
+    resourcePermissions: [ResourcePermissionInput!]
+    adminPermissions: [AdminPermissionInput!]
+}
+
+input UpdateRoleInput {
+    resourcePermissions: [ResourcePermissionInput!]!
+    adminPermissions: [AdminPermissionInput!]!
+}
+
+extend type Mutation {
+    createRole(input: CreateRoleInput!): Role!
+    updateRole(name: String!, input: UpdateRoleInput!): Role!
+    deleteRole(name: String!): Boolean!
+}
+
+extend type Query {
+    roles: [Role!]!
+    role(name: String!): Role!
+    searchRoles(pagination: PaginationInput, filter: RoleFilter!, sort: [SortInput!]): RoleList!
+}

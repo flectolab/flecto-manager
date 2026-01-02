@@ -1,0 +1,17 @@
+services:
+  db:
+    image: mariadb:latest
+    hostname: db
+    environment:
+      MYSQL_DATABASE: flecto
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: flecto
+      MYSQL_PASSWORD: flecto
+      MYSQL_ROOT_HOST: '%'
+    ports:
+      - "${FLECTO_DB_PORT:-3306}:3306"
+    volumes:
+      - db-data:/var/lib/mysql
+
+volumes:
+  db-data:
