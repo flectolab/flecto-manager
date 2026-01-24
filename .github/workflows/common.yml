@@ -1,0 +1,32 @@
+name: Test Common Package
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Test Common Package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: common/go.mod
+          cache: true
+          cache-dependency-path: common/go.sum
+
+      - name: Get Go dependencies
+        working-directory: common
+        run: go mod download
+
+      - name: Test
+        working-directory: common
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-common
+          path: common/coverage.out
