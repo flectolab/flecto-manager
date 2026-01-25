@@ -22,6 +22,7 @@ import (
 	"github.com/flectolab/flecto-manager/http/route"
 	"github.com/flectolab/flecto-manager/http/route/api/project"
 	routeAuth "github.com/flectolab/flecto-manager/http/route/auth"
+	"github.com/flectolab/flecto-manager/http/route/health"
 	"github.com/flectolab/flecto-manager/jwt"
 	"github.com/flectolab/flecto-manager/repository"
 	"github.com/flectolab/flecto-manager/service"
@@ -49,7 +50,8 @@ func CreateServerHTTP(ctx *context.Context) (*echo.Echo, error) {
 
 	authMiddleware := auth.UserCtxAuthMiddleware(&ctx.Config.Auth.JWT, services.User, services.Role, services.Token)
 
-	if err := setupAuthRoutes(ctx, e, services, jwtService, authMiddleware); err != nil {
+	e.GET("/health/ping", health.GetPing())
+	if err = setupAuthRoutes(ctx, e, services, jwtService, authMiddleware); err != nil {
 		return nil, err
 	}
 	setupGraphQLRoutes(ctx, e, services, permissionChecker, authMiddleware)
