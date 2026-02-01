@@ -223,3 +223,112 @@ func TestCreateServerHTTP_WithDatabaseConfig(t *testing.T) {
 		assert.Greater(t, len(routes), 0)
 	}
 }
+
+func TestSetupMetrics(t *testing.T) {
+	t.Run("without separate listen address", func(t *testing.T) {
+		ctx := setupTestContext(t)
+		ctx.Config.Metrics.Enabled = true
+		ctx.Config.Metrics.Listen = ""
+		ctx.Config.Agent.OfflineThreshold = 6 * time.Hour
+		e := createServerHTTP()
+		services, _ := setupTestServices(t, ctx)
+
+		setupMetrics(ctx, e, services.Agent)
+
+		// Verify /metrics route is registered
+		routes := e.Routes()
+		routePaths := make(map[string]bool)
+		for _, r := range routes {
+			routePaths[r.Method+":"+r.Path] = true
+		}
+		assert.True(t, routePaths["GET:/metrics"])
+
+		// Test metrics endpoint works
+		req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+		assert.Contains(t, rec.Body.String(), "go_gc_duration_seconds")
+	})
+
+	t.Run("with separate listen address", func(t *testing.T) {
+		ctx := setupTestContext(t)
+		ctx.Config.Metrics.Enabled = true
+		ctx.Config.Metrics.Listen = "127.0.0.1:0"
+		ctx.Config.Agent.OfflineThreshold = 6 * time.Hour
+		e := createServerHTTP()
+		services, _ := setupTestServices(t, ctx)
+
+		setupMetrics(ctx, e, services.Agent)
+
+		// Verify /metrics route is NOT registered on main server
+		routes := e.Routes()
+		routePaths := make(map[string]bool)
+		for _, r := range routes {
+			routePaths[r.Method+":"+r.Path] = true
+		}
+		assert.False(t, routePaths["GET:/metrics"])
+	})
+
+	t.Run("metrics middleware records requests", func(t *testing.T) {
+		ctx := setupTestContext(t)
+		ctx.Config.Metrics.Enabled = true
+		ctx.Config.Metrics.Listen = ""
+		ctx.Config.Agent.OfflineThreshold = 6 * time.Hour
+		e := createServerHTTP()
+		services, _ := setupTestServices(t, ctx)
+
+		setupMetrics(ctx, e, services.Agent)
+
+		// Add a test route
+		e.GET("/test", func(c echo.Context) error {
+			return c.String(http.StatusOK, "OK")
+		})
+
+		// Make a request
+		req := httptest.NewRequest(http.MethodGet, "/test", nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		// Verify metrics were recorded
+		metricsReq := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+		metricsRec := httptest.NewRecorder()
+		e.ServeHTTP(metricsRec, metricsReq)
+
+		assert.Contains(t, metricsRec.Body.String(), "flecto_http_requests_total")
+		assert.Contains(t, metricsRec.Body.String(), "flecto_http_request_duration_seconds")
+	})
+}
+
+func TestCreateServerHTTP_WithMetricsEnabled(t *testing.T) {
+	ctx := setupTestContext(t)
+	ctx.Config.DB.Type = database.DbTypeSqlite
+	ctx.Config.DB.Config = map[string]interface{}{"dsn": ":memory:"}
+	ctx.Config.Auth.JWT.Secret = "test-secret-key-32-bytes-long!!!"
+	ctx.Config.Auth.JWT.AccessTokenTTL = 15 * time.Minute
+	ctx.Config.Auth.JWT.RefreshTokenTTL = 24 * time.Hour
+	ctx.Config.Metrics.Enabled = true
+	ctx.Config.Metrics.Listen = ""
+	ctx.Config.Agent.OfflineThreshold = 6 * time.Hour
+
+	e, err := CreateServerHTTP(ctx)
+
+	assert.NoError(t, err)
+	assert.NotNil(t, e)
+
+	if e != nil {
+		// Verify metrics route is registered
+		routes := e.Routes()
+		hasMetrics := false
+		for _, r := range routes {
+			if r.Method == "GET" && r.Path == "/metrics" {
+				hasMetrics = true
+				break
+			}
+		}
+		assert.True(t, hasMetrics, "should have /metrics route when metrics enabled")
+	}
+}

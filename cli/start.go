@@ -7,6 +7,7 @@ import (
 
 	"github.com/flectolab/flecto-manager/context"
 	"github.com/flectolab/flecto-manager/http"
+	"github.com/flectolab/flecto-manager/metrics"
 	"github.com/spf13/cobra"
 )
 
@@ -25,6 +26,12 @@ func GetStartRunFn(ctx *context.Context) func(*cobra.Command, []string) error {
 			return err
 		}
 
+		// Start separate metrics server if configured
+		var metricsServer *buildinHttp.Server
+		if ctx.Config.Metrics.Enabled && ctx.Config.Metrics.Listen != "" {
+			metricsServer = metrics.StartServer(ctx, ctx.Config.Metrics.Listen)
+		}
+
 		httpConfig := ctx.Config.HTTP
 		go func() {
 			for {
@@ -32,8 +39,11 @@ func GetStartRunFn(ctx *context.Context) func(*cobra.Command, []string) error {
 				case sig := <-ctx.Signal():
 					ctx.Logger.Info(fmt.Sprintf("%s signal received, exiting...", sig.String()))
 					ctx.Cancel()
-					ctx.Logger.Info(fmt.Sprintf("gracefull shutdown completed"))
+					if metricsServer != nil {
+						_ = metricsServer.Shutdown(stdContext.Background())
+					}
 					_ = e.Shutdown(stdContext.Background())
+					ctx.Logger.Info("graceful shutdown completed")
 				}
 			}
 		}()

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/99designs/gqlgen/graphql/handler"
 	"github.com/99designs/gqlgen/graphql/handler/extension"
@@ -24,6 +25,7 @@ import (
 	routeAuth "github.com/flectolab/flecto-manager/http/route/auth"
 	"github.com/flectolab/flecto-manager/http/route/health"
 	"github.com/flectolab/flecto-manager/jwt"
+	"github.com/flectolab/flecto-manager/metrics"
 	"github.com/flectolab/flecto-manager/repository"
 	"github.com/flectolab/flecto-manager/service"
 	"github.com/flectolab/flecto-manager/webui"
@@ -56,6 +58,12 @@ func CreateServerHTTP(ctx *context.Context) (*echo.Echo, error) {
 	}
 	setupGraphQLRoutes(ctx, e, services, permissionChecker, authMiddleware)
 	setupAPIRoutes(e, services, permissionChecker, authMiddleware)
+
+	// Setup metrics if enabled
+	if ctx.Config.Metrics.Enabled {
+		setupMetrics(ctx, e, services.Agent)
+	}
+
 	registerUI(ctx, e)
 
 	return e, nil
@@ -163,6 +171,20 @@ func setupAPIRoutes(e *echo.Echo, services *service.Services, permissionChecker 
 	projectGroup.GET("/pages", project.GetPages(permissionChecker, services.Page))
 	projectGroup.POST("/agents", project.PostAgent(permissionChecker, services.Agent))
 	projectGroup.PATCH(fmt.Sprintf("/agents/:%s/hit", route.NameKey), project.PatchAgentHit(permissionChecker, services.Agent))
+}
+
+func setupMetrics(ctx *context.Context, e *echo.Echo, agentService service.AgentService) {
+	// Add HTTP metrics middleware
+	e.Use(metrics.EchoMiddleware())
+
+	// Add /metrics endpoint to existing server if no separate listen address
+	if ctx.Config.Metrics.Listen == "" {
+		e.GET("/metrics", metrics.EchoHandler())
+	}
+
+	// Start metrics collector (updates agent metrics periodically)
+	provider := metrics.NewAgentMetricsProvider(agentService)
+	metrics.StartCollector(ctx, provider, 30*time.Second)
 }
 
 func registerUI(ctx *context.Context, e *echo.Echo) {

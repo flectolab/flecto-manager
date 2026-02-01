@@ -7,11 +7,17 @@ import (
 const DefaultRequestTimeout = 2 * time.Second
 
 type Config struct {
-	HTTP  HTTPConfig  `mapstructure:"http" validate:"required"`
-	DB    DbConfig    `mapstructure:"db" validate:"required"`
-	Auth  AuthConfig  `mapstructure:"auth" validate:"required"`
-	Page  PageConfig  `mapstructure:"page" validate:"required"`
-	Agent AgentConfig `mapstructure:"agent" validate:"required"`
+	HTTP    HTTPConfig    `mapstructure:"http" validate:"required"`
+	DB      DbConfig      `mapstructure:"db" validate:"required"`
+	Auth    AuthConfig    `mapstructure:"auth" validate:"required"`
+	Page    PageConfig    `mapstructure:"page" validate:"required"`
+	Agent   AgentConfig   `mapstructure:"agent" validate:"required"`
+	Metrics MetricsConfig `mapstructure:"metrics"`
+}
+
+type MetricsConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Listen  string `mapstructure:"listen"`
 }
 
 type HTTPConfig struct {
@@ -74,6 +80,9 @@ func DefaultConfig() *Config {
 			OpenID: OpenIDConfig{
 				Enabled: false,
 			},
+		},
+		Metrics: MetricsConfig{
+			Enabled: false,
 		},
 	}
 }
