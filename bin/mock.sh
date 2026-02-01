@@ -11,3 +11,5 @@ mockgen -destination=mocks/flecto-manager/service/mock.go -package=mockFlectoSer
 mockgen -destination=mocks/flecto-manager/cli/db/mock.go -package=mockMigratorDB github.com/flectolab/flecto-manager/cli/db Migrator
 
 mockgen -destination=mocks/flecto-manager/auth/openid/mock.go -package=mockOpenID github.com/flectolab/flecto-manager/auth/openid Provider,Service
+
+mockgen -destination=mocks/flecto-manager/metrics/mock.go -package=mockMetrics github.com/flectolab/flecto-manager/metrics AgentMetricsProvider

@@ -44,6 +44,11 @@ page:
 # Agent configuration
 agent:
   offline_threshold: 6h      # Mark agent offline after this duration
+
+# Prometheus metrics (optional)
+metrics:
+  enabled: false             # Enable Prometheus metrics
+  listen: ""                 # Separate metrics server address (empty = use main server)
 ```
 
 ## Environment Variables
@@ -159,6 +164,55 @@ Supported providers include:
 - Auth0
 - Azure AD
 - Any OIDC-compliant provider
+
+## Metrics
+
+Flecto Manager can expose Prometheus metrics for monitoring.
+
+### Basic Configuration
+
+```yaml
+metrics:
+  enabled: true   # Enable metrics
+  listen: ""      # Empty = metrics available at /metrics on main server
+```
+
+### Separate Metrics Server
+
+For security or network isolation, you can run metrics on a separate port:
+
+```yaml
+metrics:
+  enabled: true
+  listen: ":9090"  # Metrics available at http://localhost:9090/metrics
+```
+
+### Available Metrics
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `flecto_agent_errors_total` | Gauge | `namespace`, `project` | Number of agents in error status (excluding offline agents) |
+| `flecto_agent_online_total` | Gauge | `namespace`, `project` | Number of online agents |
+| `flecto_http_requests_total` | Counter | `method`, `path`, `status` | Total number of HTTP requests |
+| `flecto_http_request_duration_seconds` | Histogram | `method`, `path` | HTTP request duration in seconds |
+
+### Prometheus Configuration
+
+Add Flecto Manager as a scrape target:
+
+```yaml
+scrape_configs:
+  - job_name: 'flecto-manager'
+    static_configs:
+      - targets: ['localhost:8080']  # or localhost:9090 if using separate server
+```
+
+### Grafana Dashboard
+
+You can create dashboards to visualize:
+- Agent status across namespaces and projects
+- HTTP request rates and latencies
+- Error rates by endpoint
 
 ## Security Recommendations
 
