@@ -16,6 +16,7 @@ http:
 # Database configuration
 db:
   type: mysql  # Database type (mysql)
+  log_level: silent  # Log level: silent, error, warn, info (default: silent)
   config:
     dsn: "user:password@tcp(localhost:3306)/flecto?parseTime=true"
 

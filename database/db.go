@@ -41,9 +41,8 @@ func CreateDB(ctx *context.Context) (*gorm.DB, error) {
 		defer mutex.Unlock()
 		dbConfig := ctx.Config.DB
 		dbCfg := &gorm.Config{
-			Logger: logger.NewSlogLogger(ctx.Logger, logger.Config{LogLevel: logger.Info, Colorful: true}),
+			Logger: logger.NewSlogLogger(ctx.Logger, logger.Config{LogLevel: getGormLogLevel(dbConfig.LogLevel), Colorful: true}),
 		}
-		//dbCfg := &gorm.Config{}
 		var err error
 		var dialector gorm.Dialector
 		if fn, ok := FactoryDialector[dbConfig.Type]; ok {
@@ -65,4 +64,18 @@ func CreateDB(ctx *context.Context) (*gorm.DB, error) {
 		dbInstance = db
 	}
 	return dbInstance, nil
+}
+
+// getGormLogLevel converts DbLogLevel to gorm logger.LogLevel
+func getGormLogLevel(level config.DbLogLevel) logger.LogLevel {
+	switch level {
+	case config.DbLogLevelError:
+		return logger.Error
+	case config.DbLogLevelWarn:
+		return logger.Warn
+	case config.DbLogLevelInfo:
+		return logger.Info
+	default:
+		return logger.Silent
+	}
 }

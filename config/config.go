@@ -53,9 +53,20 @@ type OpenIDConfig struct {
 	RolesClaim   string   `mapstructure:"roles_claim"`
 }
 
+// DbLogLevel represents the database logging level
+type DbLogLevel string
+
+const (
+	DbLogLevelSilent DbLogLevel = "silent"
+	DbLogLevelError  DbLogLevel = "error"
+	DbLogLevelWarn   DbLogLevel = "warn"
+	DbLogLevelInfo   DbLogLevel = "info"
+)
+
 type DbConfig struct {
-	Type   string                 `mapstructure:"type" validate:"required,excludesall=!@#$ "`
-	Config map[string]interface{} `mapstructure:"config"`
+	Type     string                 `mapstructure:"type" validate:"required,excludesall=!@#$ "`
+	LogLevel DbLogLevel             `mapstructure:"log_level"`
+	Config   map[string]interface{} `mapstructure:"config"`
 }
 
 type AgentConfig struct {

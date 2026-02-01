@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestModels(t *testing.T) {
@@ -176,4 +177,50 @@ func TestCreateDB(t *testing.T) {
 
 		assert.Same(t, db1, db2)
 	})
+}
+
+func TestGetGormLogLevel(t *testing.T) {
+	tests := []struct {
+		name     string
+		level    config.DbLogLevel
+		expected logger.LogLevel
+	}{
+		{
+			name:     "silent level",
+			level:    config.DbLogLevelSilent,
+			expected: logger.Silent,
+		},
+		{
+			name:     "error level",
+			level:    config.DbLogLevelError,
+			expected: logger.Error,
+		},
+		{
+			name:     "warn level",
+			level:    config.DbLogLevelWarn,
+			expected: logger.Warn,
+		},
+		{
+			name:     "info level",
+			level:    config.DbLogLevelInfo,
+			expected: logger.Info,
+		},
+		{
+			name:     "empty string defaults to silent",
+			level:    "",
+			expected: logger.Silent,
+		},
+		{
+			name:     "unknown level defaults to silent",
+			level:    "unknown",
+			expected: logger.Silent,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getGormLogLevel(tt.level)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
 }
