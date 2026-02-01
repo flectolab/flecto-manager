@@ -1,0 +1,87 @@
+{
+  "baseUrl": "http://localhost:8080",
+  "auth": {
+    "username": "admin",
+    "password": "admin"
+  },
+  "projects": [
+    {
+      "namespace": "default",
+      "project": "example"
+    }
+  ],
+  "agents": [
+    {
+      "name": "agent-1",
+      "hostname": "loadtest-host-1"
+    },
+    {
+      "name": "agent-2",
+      "hostname": "loadtest-host-2"
+    }
+  ],
+  "scenarios": {
+    "version": {
+      "enabled": true,
+      "executor": "constant-arrival-rate",
+      "rate": 10,
+      "timeUnit": "1s",
+      "duration": "1m",
+      "preAllocatedVUs": 5,
+      "maxVUs": 20,
+      "thresholds": {
+        "responseTime": 200
+      }
+    },
+    "pages": {
+      "enabled": true,
+      "executor": "constant-arrival-rate",
+      "rate": 5,
+      "timeUnit": "1s",
+      "duration": "1m",
+      "preAllocatedVUs": 5,
+      "maxVUs": 15,
+      "limit": 50,
+      "thresholds": {
+        "responseTime": 500
+      }
+    },
+    "redirects": {
+      "enabled": true,
+      "executor": "constant-arrival-rate",
+      "rate": 5,
+      "timeUnit": "1s",
+      "duration": "1m",
+      "preAllocatedVUs": 5,
+      "maxVUs": 15,
+      "limit": 50,
+      "thresholds": {
+        "responseTime": 500
+      }
+    },
+    "agentHit": {
+      "enabled": true,
+      "executor": "constant-arrival-rate",
+      "rate": 10,
+      "timeUnit": "1s",
+      "duration": "1m",
+      "preAllocatedVUs": 5,
+      "maxVUs": 20,
+      "thresholds": {
+        "responseTime": 200
+      }
+    },
+    "agentPost": {
+      "enabled": true,
+      "executor": "constant-arrival-rate",
+      "rate": 5,
+      "timeUnit": "1s",
+      "duration": "1m",
+      "preAllocatedVUs": 5,
+      "maxVUs": 15,
+      "thresholds": {
+        "responseTime": 300
+      }
+    }
+  }
+}

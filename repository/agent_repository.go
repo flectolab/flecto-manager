@@ -71,7 +71,7 @@ func (r *agentRepository) Upsert(ctx context.Context, agent *model.Agent) error 
 	agent.ID = existing.ID
 	existing.Agent = agent.Agent
 	existing.LastHitAt = agent.LastHitAt
-	return r.db.WithContext(ctx).Save(existing).Error
+	return r.db.WithContext(ctx).Save(&existing).Error
 }
 
 func (r *agentRepository) FindByName(ctx context.Context, namespaceCode, projectCode, name string) (*model.Agent, error) {
