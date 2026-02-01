@@ -43,7 +43,7 @@ func TestAgentService_Upsert(t *testing.T) {
 				Type:         commonTypes.AgentTypeTraefik,
 				Status:       commonTypes.AgentStatusSuccess,
 				Version:      1,
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 			},
 		}
 

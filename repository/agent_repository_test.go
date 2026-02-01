@@ -94,7 +94,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 				Name:         "agent-1",
 				Type:         commonTypes.AgentTypeTraefik,
 				Status:       commonTypes.AgentStatusSuccess,
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 			},
 		}
 
@@ -123,7 +123,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 			Agent: commonTypes.Agent{
 				Name:         "agent-1",
 				Type:         commonTypes.AgentTypeTraefik,
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 			},
 		}
 
@@ -145,7 +145,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 			Agent: commonTypes.Agent{
 				Name:         "agent-1",
 				Status:       commonTypes.AgentStatusSuccess,
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 			},
 		}
 
@@ -190,7 +190,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 				Name:         "agent-1",
 				Type:         commonTypes.AgentTypeTraefik,
 				Status:       commonTypes.AgentStatusSuccess,
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 				Version:      1,
 			},
 		}
@@ -205,7 +205,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 				Name:         "agent-1",
 				Type:         commonTypes.AgentTypeDefault,
 				Status:       commonTypes.AgentStatusError,
-				LoadDuration: 200 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(200 * time.Millisecond),
 				Error:        "connection timeout",
 				Version:      2,
 			},
@@ -219,7 +219,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 		assert.Equal(t, commonTypes.AgentStatusError, found.Status)
 		assert.Equal(t, commonTypes.AgentTypeDefault, found.Type)
 		assert.Equal(t, "connection timeout", found.Error)
-		assert.Equal(t, 200*time.Millisecond, found.LoadDuration)
+		assert.Equal(t, commonTypes.NewDuration(200*time.Millisecond), found.LoadDuration)
 		assert.Equal(t, 2, found.Version)
 
 		var count int64
@@ -241,7 +241,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 				Name:         "agent-1",
 				Type:         commonTypes.AgentTypeTraefik,
 				Status:       commonTypes.AgentStatusSuccess,
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 			},
 		}
 		err := repo.Upsert(ctx, agent)
@@ -255,7 +255,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 				Name:         "agent-1",
 				Type:         commonTypes.AgentTypeTraefik,
 				Status:       commonTypes.AgentStatusError,
-				LoadDuration: 200 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(200 * time.Millisecond),
 			},
 		}
 		assert.Zero(t, updatedAgent.ID)
@@ -280,7 +280,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 				Name:         "agent-1",
 				Type:         commonTypes.AgentTypeTraefik,
 				Status:       commonTypes.AgentStatusSuccess,
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 			},
 		}
 		agent2 := &model.Agent{
@@ -290,7 +290,7 @@ func TestAgentRepository_Upsert(t *testing.T) {
 				Name:         "agent-2",
 				Type:         commonTypes.AgentTypeTraefik,
 				Status:       commonTypes.AgentStatusSuccess,
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 			},
 		}
 
@@ -810,7 +810,7 @@ func TestAgentRepository_UpdateLastHit(t *testing.T) {
 				Type:         commonTypes.AgentTypeTraefik,
 				Status:       commonTypes.AgentStatusError,
 				Error:        "some error",
-				LoadDuration: 100 * time.Millisecond,
+				LoadDuration: commonTypes.NewDuration(100 * time.Millisecond),
 				Version:      5,
 			},
 		}
@@ -824,7 +824,7 @@ func TestAgentRepository_UpdateLastHit(t *testing.T) {
 		db.First(&updatedAgent, agent.ID)
 		assert.Equal(t, commonTypes.AgentStatusError, updatedAgent.Status)
 		assert.Equal(t, "some error", updatedAgent.Error)
-		assert.Equal(t, 100*time.Millisecond, updatedAgent.LoadDuration)
+		assert.Equal(t, commonTypes.NewDuration(100*time.Millisecond), updatedAgent.LoadDuration)
 		assert.Equal(t, 5, updatedAgent.Version)
 		assert.Equal(t, commonTypes.AgentTypeTraefik, updatedAgent.Type)
 	})
