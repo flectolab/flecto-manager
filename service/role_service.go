@@ -90,9 +90,11 @@ func (s *roleService) Create(ctx context.Context, input *model.Role) (*model.Rol
 	}
 
 	if err = s.repo.Create(ctx, input); err != nil {
+		s.ctx.Logger.Error("failed to create role", "code", input.Code, "type", input.Type, "error", err)
 		return nil, err
 	}
 
+	s.ctx.Logger.Info("role created", "code", input.Code, "type", input.Type, "id", input.ID)
 	return input, nil
 }
 
@@ -119,7 +121,7 @@ func (s *roleService) Update(ctx context.Context, id int64, input model.Role) (*
 }
 
 func (s *roleService) Delete(ctx context.Context, id int64) (bool, error) {
-	_, err := s.repo.FindByID(ctx, id)
+	role, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return false, ErrRoleNotFound
@@ -128,8 +130,11 @@ func (s *roleService) Delete(ctx context.Context, id int64) (bool, error) {
 	}
 
 	if err := s.repo.Delete(ctx, id); err != nil {
+		s.ctx.Logger.Error("failed to delete role", "code", role.Code, "id", id, "error", err)
 		return false, err
 	}
+
+	s.ctx.Logger.Info("role deleted", "code", role.Code, "id", id)
 	return true, nil
 }
 
@@ -179,7 +184,7 @@ func (s *roleService) SearchPaginate(ctx context.Context, pagination *commonType
 
 func (s *roleService) AddUserToRole(ctx context.Context, userID, roleID int64) error {
 	// Check role exists
-	_, err := s.repo.FindByID(ctx, roleID)
+	role, err := s.repo.FindByID(ctx, roleID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrRoleNotFound
@@ -196,7 +201,13 @@ func (s *roleService) AddUserToRole(ctx context.Context, userID, roleID int64) e
 		return ErrUserAlreadyInRole
 	}
 
-	return s.repo.AddUserToRole(ctx, userID, roleID)
+	if err = s.repo.AddUserToRole(ctx, userID, roleID); err != nil {
+		s.ctx.Logger.Error("failed to add user to role", "userID", userID, "roleCode", role.Code, "roleID", roleID, "error", err)
+		return err
+	}
+
+	s.ctx.Logger.Info("user added to role", "userID", userID, "roleCode", role.Code, "roleID", roleID)
+	return nil
 }
 
 func (s *roleService) RemoveUserFromRole(ctx context.Context, userID, roleID int64) error {
@@ -209,7 +220,13 @@ func (s *roleService) RemoveUserFromRole(ctx context.Context, userID, roleID int
 		return ErrUserNotInRole
 	}
 
-	return s.repo.RemoveUserFromRole(ctx, userID, roleID)
+	if err = s.repo.RemoveUserFromRole(ctx, userID, roleID); err != nil {
+		s.ctx.Logger.Error("failed to remove user from role", "userID", userID, "roleID", roleID, "error", err)
+		return err
+	}
+
+	s.ctx.Logger.Info("user removed from role", "userID", userID, "roleID", roleID)
+	return nil
 }
 
 func (s *roleService) GetUserRoles(ctx context.Context, userID int64) ([]model.Role, error) {
@@ -364,7 +381,7 @@ func deduplicateAdminPermissions(perms []model.AdminPermission) []model.AdminPer
 }
 
 func (s *roleService) UpdateRolePermissions(ctx context.Context, roleID int64, permissions *model.SubjectPermissions) error {
-	_, err := s.repo.FindByID(ctx, roleID)
+	role, err := s.repo.FindByID(ctx, roleID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return ErrRoleNotFound
@@ -372,7 +389,7 @@ func (s *roleService) UpdateRolePermissions(ctx context.Context, roleID int64, p
 		return err
 	}
 
-	return s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
+	err = s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
 		// Delete all existing resource permissions for this role
 		if err = tx.Where("role_id = ?", roleID).Delete(&model.ResourcePermission{}).Error; err != nil {
 			return err
@@ -422,6 +439,13 @@ func (s *roleService) UpdateRolePermissions(ctx context.Context, roleID int64, p
 
 		return nil
 	})
+	if err != nil {
+		s.ctx.Logger.Error("failed to update role permissions", "roleCode", role.Code, "roleID", roleID, "error", err)
+		return err
+	}
+
+	s.ctx.Logger.Info("role permissions updated", "roleCode", role.Code, "roleID", roleID, "resourcePermissions", len(permissions.Resources), "adminPermissions", len(permissions.Admin))
+	return nil
 }
 
 func (s *roleService) UpdateUserRoles(ctx context.Context, userID int64, roleCodes []string) error {
@@ -476,4 +500,11 @@ func (s *roleService) UpdateUserRoles(ctx context.Context, userID int64, roleCod
 
 		return nil
 	})
+	if err != nil {
+		s.ctx.Logger.Error("failed to update user roles", "userID", userID, "roleCodes", roleCodes, "error", err)
+		return err
+	}
+
+	s.ctx.Logger.Info("user roles updated", "userID", userID, "roleCodes", roleCodes)
+	return nil
 }

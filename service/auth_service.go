@@ -39,16 +39,19 @@ func (s *authService) Login(ctx context.Context, req *types.LoginRequest) (*mode
 	user, err := s.userRepo.FindByUsername(ctx, req.Username)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.ctx.Logger.Warn("login failed: user not found", "username", req.Username)
 			return nil, nil, ErrInvalidCredentials
 		}
 		return nil, nil, err
 	}
 
 	if !user.IsActive() || !user.HasPassword() {
+		s.ctx.Logger.Warn("login failed: user inactive or has no password", "username", req.Username)
 		return nil, nil, ErrUserNotFound
 	}
 
 	if err = hash.CheckPassword(user.Password, req.Password); err != nil {
+		s.ctx.Logger.Warn("login failed: invalid password", "username", req.Username)
 		return nil, nil, ErrInvalidCredentials
 	}
 	// Generate tokens
@@ -64,6 +67,7 @@ func (s *authService) Login(ctx context.Context, req *types.LoginRequest) (*mode
 		return nil, nil, err
 	}
 
+	s.ctx.Logger.Info("user logged in", "username", req.Username, "id", user.ID)
 	return user, tokenPair, nil
 }
 

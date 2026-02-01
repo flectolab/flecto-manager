@@ -693,6 +693,32 @@ func TestRoleService_AddUserToRole(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, expectedErr, err)
 	})
+
+	t.Run("add user to role error", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+		role := &model.Role{ID: 1, Code: "testrole"}
+		expectedErr := errors.New("database error")
+
+		mocks.roleRepo.EXPECT().
+			FindByID(ctx, int64(1)).
+			Return(role, nil)
+
+		mocks.roleRepo.EXPECT().
+			HasUserRole(ctx, int64(10), int64(1)).
+			Return(false, nil)
+
+		mocks.roleRepo.EXPECT().
+			AddUserToRole(ctx, int64(10), int64(1)).
+			Return(expectedErr)
+
+		err := svc.AddUserToRole(ctx, 10, 1)
+
+		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+	})
 }
 
 func TestRoleService_RemoveUserFromRole(t *testing.T) {
@@ -741,6 +767,27 @@ func TestRoleService_RemoveUserFromRole(t *testing.T) {
 		mocks.roleRepo.EXPECT().
 			HasUserRole(ctx, int64(10), int64(1)).
 			Return(false, expectedErr)
+
+		err := svc.RemoveUserFromRole(ctx, 10, 1)
+
+		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+	})
+
+	t.Run("remove user from role error", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+		expectedErr := errors.New("database error")
+
+		mocks.roleRepo.EXPECT().
+			HasUserRole(ctx, int64(10), int64(1)).
+			Return(true, nil)
+
+		mocks.roleRepo.EXPECT().
+			RemoveUserFromRole(ctx, int64(10), int64(1)).
+			Return(expectedErr)
 
 		err := svc.RemoveUserFromRole(ctx, 10, 1)
 
@@ -848,6 +895,161 @@ func TestRoleService_GetRoleUsers(t *testing.T) {
 			Return(nil, expectedErr)
 
 		result, err := svc.GetRoleUsers(ctx, 1)
+
+		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+		assert.Nil(t, result)
+	})
+}
+
+func TestRoleService_GetRoleUsersPaginate(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+		role := &model.Role{ID: 1, Code: "testrole", Type: model.RoleTypeRole}
+		expectedUsers := []model.User{
+			{ID: 1, Username: "user1"},
+			{ID: 2, Username: "user2"},
+		}
+		limit := 10
+		offset := 0
+		pagination := &types.PaginationInput{Limit: &limit, Offset: &offset}
+
+		mocks.roleRepo.EXPECT().
+			FindByCodeAndType(ctx, "testrole", model.RoleTypeRole).
+			Return(role, nil)
+
+		mocks.roleRepo.EXPECT().
+			GetRoleUsersPaginate(ctx, int64(1), "", 10, 0).
+			Return(expectedUsers, int64(2), nil)
+
+		result, err := svc.GetRoleUsersPaginate(ctx, "testrole", pagination, "")
+
+		assert.NoError(t, err)
+		assert.NotNil(t, result)
+		assert.Equal(t, 2, result.Total)
+		assert.Len(t, result.Items, 2)
+	})
+
+	t.Run("role not found", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+		pagination := &types.PaginationInput{}
+
+		mocks.roleRepo.EXPECT().
+			FindByCodeAndType(ctx, "notfound", model.RoleTypeRole).
+			Return(nil, gorm.ErrRecordNotFound)
+
+		result, err := svc.GetRoleUsersPaginate(ctx, "notfound", pagination, "")
+
+		assert.Error(t, err)
+		assert.Equal(t, ErrRoleNotFound, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("generic error from FindByCodeAndType", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+		pagination := &types.PaginationInput{}
+		expectedErr := errors.New("database error")
+
+		mocks.roleRepo.EXPECT().
+			FindByCodeAndType(ctx, "testrole", model.RoleTypeRole).
+			Return(nil, expectedErr)
+
+		result, err := svc.GetRoleUsersPaginate(ctx, "testrole", pagination, "")
+
+		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("error from GetRoleUsersPaginate", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+		role := &model.Role{ID: 1, Code: "testrole", Type: model.RoleTypeRole}
+		pagination := &types.PaginationInput{}
+		expectedErr := errors.New("database error")
+
+		mocks.roleRepo.EXPECT().
+			FindByCodeAndType(ctx, "testrole", model.RoleTypeRole).
+			Return(role, nil)
+
+		mocks.roleRepo.EXPECT().
+			GetRoleUsersPaginate(ctx, int64(1), "", types.DefaultLimit, types.DefaultOffset).
+			Return(nil, int64(0), expectedErr)
+
+		result, err := svc.GetRoleUsersPaginate(ctx, "testrole", pagination, "")
+
+		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+		assert.Nil(t, result)
+	})
+}
+
+func TestRoleService_GetUsersNotInRole(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+		role := &model.Role{ID: 1, Code: "testrole", Type: model.RoleTypeRole}
+		expectedUsers := []model.User{
+			{ID: 1, Username: "user1"},
+			{ID: 2, Username: "user2"},
+		}
+
+		mocks.roleRepo.EXPECT().
+			FindByCodeAndType(ctx, "testrole", model.RoleTypeRole).
+			Return(role, nil)
+
+		mocks.roleRepo.EXPECT().
+			GetUsersNotInRole(ctx, int64(1), "search", 10).
+			Return(expectedUsers, nil)
+
+		result, err := svc.GetUsersNotInRole(ctx, "testrole", "search", 10)
+
+		assert.NoError(t, err)
+		assert.Len(t, result, 2)
+	})
+
+	t.Run("role not found", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+
+		mocks.roleRepo.EXPECT().
+			FindByCodeAndType(ctx, "notfound", model.RoleTypeRole).
+			Return(nil, gorm.ErrRecordNotFound)
+
+		result, err := svc.GetUsersNotInRole(ctx, "notfound", "", 10)
+
+		assert.Error(t, err)
+		assert.Equal(t, ErrRoleNotFound, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("generic error from FindByCodeAndType", func(t *testing.T) {
+		mocks, svc := setupRoleServiceTest(t)
+		defer mocks.ctrl.Finish()
+
+		ctx := context.Background()
+		expectedErr := errors.New("database error")
+
+		mocks.roleRepo.EXPECT().
+			FindByCodeAndType(ctx, "testrole", model.RoleTypeRole).
+			Return(nil, expectedErr)
+
+		result, err := svc.GetUsersNotInRole(ctx, "testrole", "", 10)
 
 		assert.Error(t, err)
 		assert.Equal(t, expectedErr, err)

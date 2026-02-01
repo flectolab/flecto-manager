@@ -184,6 +184,8 @@ func (s *redirectDraftService) Delete(ctx context.Context, id int64) (bool, erro
 }
 
 func (s *redirectDraftService) Rollback(ctx context.Context, namespaceCode, projectCode string) (bool, error) {
+	s.ctx.Logger.Info("redirect drafts rollback started", "namespace", namespaceCode, "project", projectCode)
+
 	err := s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Where(fmt.Sprintf("%s = ? AND %s = ?", model.ColumnNamespaceCode, model.ColumnProjectCode), namespaceCode, projectCode).
 			Delete(&model.RedirectDraft{}).Error; err != nil {
@@ -198,9 +200,11 @@ func (s *redirectDraftService) Rollback(ctx context.Context, namespaceCode, proj
 		return nil
 	})
 	if err != nil {
+		s.ctx.Logger.Error("redirect drafts rollback failed", "namespace", namespaceCode, "project", projectCode, "error", err)
 		return false, err
 	}
 
+	s.ctx.Logger.Info("redirect drafts rollback completed", "namespace", namespaceCode, "project", projectCode)
 	return true, nil
 }
 

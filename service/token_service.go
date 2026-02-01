@@ -154,9 +154,11 @@ func (s *tokenService) Create(ctx context.Context, name string, expiresAt *strin
 	})
 
 	if err != nil {
+		s.ctx.Logger.Error("failed to create token", "name", name, "error", err)
 		return nil, "", err
 	}
 
+	s.ctx.Logger.Info("token created", "name", name, "id", token.ID)
 	return token, plainToken, nil
 }
 
@@ -197,9 +199,11 @@ func (s *tokenService) Delete(ctx context.Context, id int64) (bool, error) {
 	})
 
 	if err != nil {
+		s.ctx.Logger.Error("failed to delete token", "name", token.Name, "id", id, "error", err)
 		return false, err
 	}
 
+	s.ctx.Logger.Info("token deleted", "name", token.Name, "id", id)
 	return true, nil
 }
 
@@ -228,6 +232,7 @@ func (s *tokenService) GetByName(ctx context.Context, name string) (*model.Token
 func (s *tokenService) ValidateToken(ctx context.Context, plainToken string) (*model.Token, *model.SubjectPermissions, error) {
 	// Check prefix
 	if len(plainToken) < len(model.TokenPrefix) || plainToken[:len(model.TokenPrefix)] != model.TokenPrefix {
+		s.ctx.Logger.Warn("token validation failed: invalid prefix")
 		return nil, nil, ErrInvalidToken
 	}
 
@@ -236,6 +241,7 @@ func (s *tokenService) ValidateToken(ctx context.Context, plainToken string) (*m
 	token, err := s.repo.FindByHash(ctx, tokenHash)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			s.ctx.Logger.Warn("token validation failed: token not found")
 			return nil, nil, ErrInvalidToken
 		}
 		return nil, nil, err
@@ -243,6 +249,7 @@ func (s *tokenService) ValidateToken(ctx context.Context, plainToken string) (*m
 
 	// Check expiration
 	if token.IsExpired() {
+		s.ctx.Logger.Warn("token validation failed: token expired", "name", token.Name)
 		return nil, nil, ErrTokenExpired
 	}
 

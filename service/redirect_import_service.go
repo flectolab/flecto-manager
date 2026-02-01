@@ -252,6 +252,8 @@ func (s *redirectImportService) ParseFile(reader io.Reader) ([]ParsedRedirectRow
 
 // Import imports the parsed rows into the database
 func (s *redirectImportService) Import(ctx context.Context, namespaceCode, projectCode string, rows []ParsedRedirectRow, opts ImportRedirectOptions) (*ImportRedirectResult, error) {
+	s.ctx.Logger.Info("redirect import started", "namespace", namespaceCode, "project", projectCode, "rows", len(rows), "overwrite", opts.Overwrite)
+
 	result := &ImportRedirectResult{
 		Success:    true,
 		TotalLines: len(rows),
@@ -259,6 +261,7 @@ func (s *redirectImportService) Import(ctx context.Context, namespaceCode, proje
 	}
 
 	if len(rows) == 0 {
+		s.ctx.Logger.Info("redirect import completed: no rows to import", "namespace", namespaceCode, "project", projectCode)
 		return result, nil
 	}
 
@@ -316,10 +319,12 @@ func (s *redirectImportService) Import(ctx context.Context, namespaceCode, proje
 	})
 
 	if err != nil {
+		s.ctx.Logger.Error("redirect import failed", "namespace", namespaceCode, "project", projectCode, "error", err)
 		return nil, err
 	}
 
 	result.Success = result.ErrorCount == 0
+	s.ctx.Logger.Info("redirect import completed", "namespace", namespaceCode, "project", projectCode, "imported", result.ImportedCount, "skipped", result.SkippedCount, "errors", result.ErrorCount)
 	return result, nil
 }
 

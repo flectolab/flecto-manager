@@ -54,9 +54,11 @@ func (s *namespaceService) Create(ctx context.Context, input *model.Namespace) (
 		return nil, err
 	}
 	if err = s.repo.Create(ctx, input); err != nil {
+		s.ctx.Logger.Error("failed to create namespace", "code", input.NamespaceCode, "error", err)
 		return nil, err
 	}
 
+	s.ctx.Logger.Info("namespace created", "code", input.NamespaceCode)
 	return input, nil
 }
 
@@ -82,13 +84,16 @@ func (s *namespaceService) Update(ctx context.Context, namespaceCode string, inp
 func (s *namespaceService) Delete(ctx context.Context, namespaceCode string) (bool, error) {
 	// Delete associated projects first
 	if err := s.projectRepo.DeleteByNamespaceCode(ctx, namespaceCode); err != nil {
+		s.ctx.Logger.Error("failed to delete namespace projects", "code", namespaceCode, "error", err)
 		return false, err
 	}
 
 	if err := s.repo.DeleteByCode(ctx, namespaceCode); err != nil {
+		s.ctx.Logger.Error("failed to delete namespace", "code", namespaceCode, "error", err)
 		return false, err
 	}
 
+	s.ctx.Logger.Info("namespace deleted", "code", namespaceCode)
 	return true, nil
 }
 

@@ -79,20 +79,24 @@ func (s *userService) Create(ctx context.Context, input *model.User) (*model.Use
 	}
 
 	if err = s.repo.Create(ctx, input); err != nil {
+		s.ctx.Logger.Error("failed to create user", "username", input.Username, "error", err)
 		return nil, err
 	}
 
 	role := &model.Role{Code: input.Username, Type: model.RoleTypeUser}
 	err = s.roleRepo.Create(ctx, role)
 	if err != nil {
+		s.ctx.Logger.Error("failed to create user role", "username", input.Username, "error", err)
 		return nil, err
 	}
 
 	err = s.roleRepo.AddUserToRole(ctx, input.ID, role.ID)
 	if err != nil {
+		s.ctx.Logger.Error("failed to assign role to user", "username", input.Username, "error", err)
 		return nil, err
 	}
 
+	s.ctx.Logger.Info("user created", "username", input.Username, "id", input.ID)
 	return input, nil
 }
 
@@ -129,13 +133,16 @@ func (s *userService) Delete(ctx context.Context, id int64) (bool, error) {
 	}
 
 	if err = s.roleRepo.Delete(ctx, role.ID); err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		s.ctx.Logger.Error("failed to delete user role", "username", user.Username, "error", err)
 		return false, err
 	}
 
 	if err = s.repo.Delete(ctx, id); err != nil {
+		s.ctx.Logger.Error("failed to delete user", "username", user.Username, "error", err)
 		return false, err
 	}
 
+	s.ctx.Logger.Info("user deleted", "username", user.Username, "id", id)
 	return true, nil
 }
 
@@ -203,9 +210,11 @@ func (s *userService) UpdateStatus(ctx context.Context, id int64, active bool) (
 	}
 
 	if err = s.repo.UpdateStatus(ctx, id, active); err != nil {
+		s.ctx.Logger.Error("failed to update user status", "username", user.Username, "active", active, "error", err)
 		return nil, err
 	}
 
+	s.ctx.Logger.Info("user status updated", "username", user.Username, "active", active)
 	user.Active = &active
 	return user, nil
 }

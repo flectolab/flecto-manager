@@ -78,8 +78,10 @@ func (s *projectService) Create(ctx context.Context, input *model.Project) (*mod
 		return nil, err
 	}
 	if err = s.repo.Create(ctx, input); err != nil {
+		s.ctx.Logger.Error("failed to create project", "namespace", input.NamespaceCode, "project", input.ProjectCode, "error", err)
 		return nil, err
 	}
+	s.ctx.Logger.Info("project created", "namespace", input.NamespaceCode, "project", input.ProjectCode)
 	return input, nil
 }
 
@@ -103,8 +105,10 @@ func (s *projectService) Update(ctx context.Context, namespaceCode, projectCode 
 
 func (s *projectService) Delete(ctx context.Context, namespaceCode, projectCode string) (bool, error) {
 	if err := s.repo.Delete(ctx, namespaceCode, projectCode); err != nil {
+		s.ctx.Logger.Error("failed to delete project", "namespace", namespaceCode, "project", projectCode, "error", err)
 		return false, err
 	}
+	s.ctx.Logger.Info("project deleted", "namespace", namespaceCode, "project", projectCode)
 	return true, nil
 }
 
@@ -167,8 +171,11 @@ func (s *projectService) TotalPageContentSizeLimit() int64 {
 }
 
 func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode string) (*model.Project, error) {
+	s.ctx.Logger.Info("publish started", "namespace", namespaceCode, "project", projectCode)
+
 	project, err := s.repo.FindByCode(ctx, namespaceCode, projectCode)
 	if err != nil {
+		s.ctx.Logger.Error("publish failed: project not found", "namespace", namespaceCode, "project", projectCode, "error", err)
 		return nil, err
 	}
 
@@ -182,6 +189,7 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 	}
 
 	if redirectDraftCount == 0 && pageDraftCount == 0 {
+		s.ctx.Logger.Warn("publish aborted: nothing to publish", "namespace", namespaceCode, "project", projectCode)
 		return nil, fmt.Errorf("nothing to publish for project %s/%s", namespaceCode, projectCode)
 	}
 	publishedAt := time.Now()
@@ -315,9 +323,15 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 		return nil
 	})
 	if err != nil {
+		if err == ErrPublishInProgress {
+			s.ctx.Logger.Warn("publish failed: already in progress", "namespace", namespaceCode, "project", projectCode)
+		} else {
+			s.ctx.Logger.Error("publish failed", "namespace", namespaceCode, "project", projectCode, "error", err)
+		}
 		return nil, err
 	}
 
+	s.ctx.Logger.Info("publish completed", "namespace", namespaceCode, "project", projectCode, "version", project.Version, "redirects", len(redirects), "pages", len(pages))
 	return project, nil
 }
 
