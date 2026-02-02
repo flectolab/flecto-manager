@@ -98,10 +98,10 @@ func setupAuthRoutes(ctx *context.Context, e *echo.Echo, services *service.Servi
 			return fmt.Errorf("failed to create OpenID provider: %w", err)
 		}
 		openidService := openid.NewService(openidProvider, services.User, jwtService)
-		authGroup.GET("/openid", routeAuth.GetOpenIDConfig(&ctx.Config.Auth.OpenID, openidService))
-		authGroup.GET("/openid/callback", routeAuth.GetOpenIDCallback(openidService))
+		authGroup.GET("/openid", routeAuth.GetOpenIDConfig(ctx, &ctx.Config.Auth.OpenID, openidService))
+		authGroup.GET("/openid/callback", routeAuth.GetOpenIDCallback(ctx, openidService))
 	} else {
-		authGroup.GET("/openid", routeAuth.GetOpenIDConfig(&ctx.Config.Auth.OpenID, nil))
+		authGroup.GET("/openid", routeAuth.GetOpenIDConfig(ctx, &ctx.Config.Auth.OpenID, nil))
 	}
 
 	return nil

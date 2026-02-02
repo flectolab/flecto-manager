@@ -44,6 +44,11 @@ func TestValidateCode(t *testing.T) {
 			args:    args{String: "foo 1"},
 			wantErr: assert.Error,
 		},
+		{
+			name:    "failWith@",
+			args:    args{String: "foo@"},
+			wantErr: assert.Error,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
