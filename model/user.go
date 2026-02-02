@@ -17,7 +17,7 @@ var UserSortableColumns = map[string]string{
 
 type User struct {
 	ID               int64     `json:"id" gorm:"primaryKey;autoIncrement"`
-	Username         string    `json:"username" gorm:"unique;size:100;not null" validate:"required,code"`
+	Username         string    `json:"username" gorm:"unique;size:100;not null" validate:"required,username"`
 	Password         string    `json:"-" gorm:"size:255"`
 	Lastname         string    `json:"lastname"  validate:"required"`
 	Firstname        string    `json:"firstname"  validate:"required"`

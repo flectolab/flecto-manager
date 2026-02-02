@@ -120,7 +120,7 @@ func TestUserService_Create(t *testing.T) {
 		result, err := svc.Create(ctx, input)
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "Field validation for 'Username' failed on the 'code' tag")
+		assert.Contains(t, err.Error(), "Field validation for 'Username' failed on the 'username' tag")
 		assert.Nil(t, result)
 	})
 

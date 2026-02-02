@@ -6,6 +6,7 @@ import (
 
 	"github.com/flectolab/flecto-manager/auth/openid"
 	"github.com/flectolab/flecto-manager/config"
+	appContext "github.com/flectolab/flecto-manager/context"
 	"github.com/flectolab/flecto-manager/types"
 	"github.com/labstack/echo/v4"
 )
@@ -19,7 +20,7 @@ type OpenIDConfigResponse struct {
 	AuthURL string `json:"authUrl,omitempty"`
 }
 
-func GetOpenIDConfig(cfg *config.OpenIDConfig, openidService openid.Service) func(echo.Context) error {
+func GetOpenIDConfig(ctx *appContext.Context, cfg *config.OpenIDConfig, openidService openid.Service) func(echo.Context) error {
 	return func(c echo.Context) error {
 		if !cfg.Enabled {
 			return c.JSON(http.StatusOK, OpenIDConfigResponse{
@@ -29,6 +30,7 @@ func GetOpenIDConfig(cfg *config.OpenIDConfig, openidService openid.Service) fun
 
 		authURL, state, err := openidService.BeginAuth()
 		if err != nil {
+			ctx.Logger.Error("failed to generate OpenID auth URL", "error", err)
 			return c.JSON(http.StatusInternalServerError, types.ErrorResponse{
 				Error:   "internal_error",
 				Message: "Failed to generate auth URL",
@@ -46,7 +48,7 @@ func GetOpenIDConfig(cfg *config.OpenIDConfig, openidService openid.Service) fun
 	}
 }
 
-func GetOpenIDCallback(openidService openid.Service) func(echo.Context) error {
+func GetOpenIDCallback(ctx *appContext.Context, openidService openid.Service) func(echo.Context) error {
 	return func(c echo.Context) error {
 		code := c.QueryParam("code")
 		state := c.QueryParam("state")
@@ -55,9 +57,11 @@ func GetOpenIDCallback(openidService openid.Service) func(echo.Context) error {
 			errorParam := c.QueryParam("error")
 			errorDesc := c.QueryParam("error_description")
 			if errorParam != "" {
+				ctx.Logger.Warn("OpenID callback received error from provider", "error", errorParam, "description", errorDesc)
 				return c.Redirect(http.StatusTemporaryRedirect,
 					"/login?error="+errorParam+"&error_description="+errorDesc)
 			}
+			ctx.Logger.Warn("OpenID callback missing authorization code")
 			return c.Redirect(http.StatusTemporaryRedirect,
 				"/login?error=missing_code&error_description=Authorization+code+is+required")
 		}
@@ -70,12 +74,15 @@ func GetOpenIDCallback(openidService openid.Service) func(echo.Context) error {
 			var errorCode, errorDesc string
 			switch {
 			case errors.Is(err, openid.ErrInvalidState):
+				ctx.Logger.Warn("OpenID callback invalid state", "error", err)
 				errorCode = "invalid_state"
 				errorDesc = "Invalid+state+parameter"
 			case errors.Is(err, openid.ErrUserInactive):
+				ctx.Logger.Warn("OpenID callback user inactive", "error", err)
 				errorCode = "user_inactive"
 				errorDesc = "User+account+is+inactive"
 			default:
+				ctx.Logger.Error("OpenID callback authentication failed", "error", err)
 				errorCode = "auth_failed"
 				errorDesc = "Authentication+failed"
 			}

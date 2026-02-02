@@ -9,9 +9,10 @@ import (
 
 	"github.com/flectolab/flecto-manager/auth/openid"
 	"github.com/flectolab/flecto-manager/config"
+	appContext "github.com/flectolab/flecto-manager/context"
+	mockOpenID "github.com/flectolab/flecto-manager/mocks/flecto-manager/auth/openid"
 	"github.com/flectolab/flecto-manager/model"
 	"github.com/flectolab/flecto-manager/types"
-	mockOpenID "github.com/flectolab/flecto-manager/mocks/flecto-manager/auth/openid"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		cfg := &config.OpenIDConfig{
 			Enabled: false,
 		}
@@ -33,7 +35,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDConfig(cfg, mockService)
+		handler := GetOpenIDConfig(ctx, cfg, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -45,6 +47,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		cfg := &config.OpenIDConfig{
 			Enabled: true,
 			Name:    "Google",
@@ -61,7 +64,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDConfig(cfg, mockService)
+		handler := GetOpenIDConfig(ctx, cfg, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -89,6 +92,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		cfg := &config.OpenIDConfig{
 			Enabled: true,
 		}
@@ -103,7 +107,7 @@ func TestGetOpenIDConfig(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDConfig(cfg, mockService)
+		handler := GetOpenIDConfig(ctx, cfg, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -117,6 +121,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		mockService := mockOpenID.NewMockService(ctrl)
 
 		user := &model.User{ID: 1, Username: "test@example.com"}
@@ -135,7 +140,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDCallback(mockService)
+		handler := GetOpenIDCallback(ctx, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -147,6 +152,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		mockService := mockOpenID.NewMockService(ctrl)
 
 		e := echo.New()
@@ -154,7 +160,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDCallback(mockService)
+		handler := GetOpenIDCallback(ctx, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -168,6 +174,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		mockService := mockOpenID.NewMockService(ctrl)
 
 		e := echo.New()
@@ -175,7 +182,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDCallback(mockService)
+		handler := GetOpenIDCallback(ctx, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -187,6 +194,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		mockService := mockOpenID.NewMockService(ctrl)
 
 		mockService.EXPECT().
@@ -199,7 +207,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDCallback(mockService)
+		handler := GetOpenIDCallback(ctx, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -211,6 +219,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		mockService := mockOpenID.NewMockService(ctrl)
 
 		mockService.EXPECT().
@@ -223,7 +232,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDCallback(mockService)
+		handler := GetOpenIDCallback(ctx, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -235,6 +244,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		mockService := mockOpenID.NewMockService(ctrl)
 
 		mockService.EXPECT().
@@ -247,7 +257,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDCallback(mockService)
+		handler := GetOpenIDCallback(ctx, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
@@ -259,6 +269,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
+		ctx := appContext.TestContext(nil)
 		mockService := mockOpenID.NewMockService(ctrl)
 
 		mockService.EXPECT().
@@ -271,7 +282,7 @@ func TestGetOpenIDCallback(t *testing.T) {
 		rec := httptest.NewRecorder()
 		c := e.NewContext(req, rec)
 
-		handler := GetOpenIDCallback(mockService)
+		handler := GetOpenIDCallback(ctx, mockService)
 		err := handler(c)
 
 		require.NoError(t, err)
