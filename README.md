@@ -91,9 +91,9 @@ docker run -p 8080:8080 -e FLECTO_MANAGER_CFG='
 http:
   listen: "0.0.0.0:8080"
 db:
-  type: sqlite
+  type: mysql
   config:
-    dsn: "/data/flecto.db"
+    dsn: "user:password@tcp(localhost:3306)/flecto?parseTime=true"
 auth:
   jwt:
     secret: "your-secret-key-at-least-32-chars!"
@@ -202,9 +202,9 @@ http:
   listen: "127.0.0.1:8080"
 
 db:
-  type: sqlite
+  type: mysql
   config:
-    dsn: "./flecto.db"
+    dsn: "user:password@tcp(localhost:3306)/flecto?parseTime=true"
 
 auth:
   jwt:
