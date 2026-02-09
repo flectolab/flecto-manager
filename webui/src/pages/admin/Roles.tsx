@@ -225,7 +225,7 @@ export function Roles() {
                             key={index}
                             className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400"
                           >
-                            {perm.namespace}/{perm.project}:{perm.action}
+                            {perm.namespace}/{perm.project}/{perm.resource}:{perm.action}
                           </span>
                         ))
                       )}
