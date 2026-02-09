@@ -77,7 +77,7 @@ func (r *queryResolver) Namespaces(ctx context.Context) ([]model.Namespace, erro
 func (r *queryResolver) Namespace(ctx context.Context, namespaceCode string) (*model.Namespace, error) {
 	userCtx := auth.GetUser(ctx)
 	if !r.PermissionChecker.CanAdmin(userCtx.SubjectPermissions, model.AdminSectionNamespaces, model.ActionRead) &&
-		!r.PermissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, "*", model.ResourceTypeAll, model.ActionRead) {
+		!r.PermissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, "*", model.ResourceTypeAny, model.ActionRead) {
 		return nil, fmt.Errorf("user %s has no permission to access namespace %s", userCtx.Username, namespaceCode)
 	}
 	return r.NamespaceService.GetByCode(ctx, namespaceCode)

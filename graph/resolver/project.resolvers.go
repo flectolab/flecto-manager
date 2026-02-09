@@ -55,7 +55,7 @@ func (r *mutationResolver) DeleteProject(ctx context.Context, namespaceCode stri
 // PublishProject is the resolver for the publish field.
 func (r *mutationResolver) PublishProject(ctx context.Context, namespaceCode string, projectCode string) (*model.Project, error) {
 	userCtx := auth.GetUser(ctx)
-	if !r.PermissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, projectCode, model.ResourceTypeAll, model.ActionWrite) {
+	if !r.PermissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, projectCode, model.ResourceTypeAny, model.ActionWrite) {
 		return nil, fmt.Errorf("user %s has no permission to access project %s/%s", userCtx.Username, namespaceCode, projectCode)
 	}
 
@@ -126,7 +126,7 @@ func (r *queryResolver) SearchProjects(ctx context.Context, pagination *commonTy
 func (r *queryResolver) Project(ctx context.Context, namespaceCode string, projectCode string) (*model.Project, error) {
 	userCtx := auth.GetUser(ctx)
 	if !r.PermissionChecker.CanAdmin(userCtx.SubjectPermissions, model.AdminSectionProjects, model.ActionRead) &&
-		!r.PermissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, projectCode, model.ResourceTypeAll, model.ActionRead) {
+		!r.PermissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, projectCode, model.ResourceTypeAny, model.ActionRead) {
 		return nil, fmt.Errorf("user %s has no permission to access project %s/%s", userCtx.Username, namespaceCode, projectCode)
 	}
 	return r.ProjectService.GetByCodeWithNamespace(ctx, namespaceCode, projectCode)

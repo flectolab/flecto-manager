@@ -20,7 +20,7 @@ func GetVersion(permissionChecker *auth.PermissionChecker, projectService servic
 			return echo.NewHTTPError(http.StatusBadRequest, fmt.Errorf("namespaceCode and projectCode are required"))
 		}
 		userCtx := auth.GetUser(ctx)
-		if !permissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, projectCode, model.ResourceTypeAll, model.ActionRead) {
+		if !permissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, projectCode, model.ResourceTypeAny, model.ActionRead) {
 			return c.NoContent(http.StatusForbidden)
 		}
 

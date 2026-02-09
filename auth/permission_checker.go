@@ -113,7 +113,7 @@ func (c *PermissionChecker) CanAdmin(permissions *model.SubjectPermissions, sect
 func (c *PermissionChecker) matchResource(p model.ResourcePermission, namespace, project string, resource model.ResourceType, action model.ActionType) bool {
 	namespaceMatch := p.Namespace == "*" || p.Namespace == namespace
 	projectMatch := p.Project == "*" || p.Project == project
-	resourceMatch := p.Resource == model.ResourceTypeAll || p.Resource == resource
+	resourceMatch := p.Resource == model.ResourceTypeAll || p.Resource == resource || resource == model.ResourceTypeAny
 	actionMatch := p.Action == model.ActionAll || p.Action == action
 
 	return namespaceMatch && projectMatch && resourceMatch && actionMatch
@@ -121,7 +121,7 @@ func (c *PermissionChecker) matchResource(p model.ResourcePermission, namespace,
 
 // matchAdmin checks if an AdminPermission matches the given criteria
 func (c *PermissionChecker) matchAdmin(p model.AdminPermission, section model.SectionType, action model.ActionType) bool {
-	sectionMatch := string(p.Section) == "*" || p.Section == section
+	sectionMatch := p.Section == model.AdminSectionAll || p.Section == section
 	actionMatch := p.Action == model.ActionAll || p.Action == action
 
 	return sectionMatch && actionMatch

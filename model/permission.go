@@ -24,6 +24,7 @@ const (
 	ResourceTypePage     ResourceType = "page"
 	ResourceTypeAgent    ResourceType = "agent"
 	ResourceTypeAll      ResourceType = "*"
+	ResourceTypeAny      ResourceType = "any"
 )
 
 type ResourcePermission struct {
