@@ -164,6 +164,66 @@ func TestRedirectTree_Match(t *testing.T) {
 			wantTarget:   "/profile/456",
 		},
 		{
+			name: "regex host unescaped dot matches any character",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegexHost, Source: "example.com/path", Target: "/target", Status: RedirectStatusMovedPermanent},
+			},
+			host:         "exampleXcom",
+			uri:          "/path",
+			wantRedirect: true,
+			wantTarget:   "/target",
+		},
+		{
+			name: "regex host escaped dot does not match other characters",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegexHost, Source: "example\\.com/path", Target: "/target", Status: RedirectStatusMovedPermanent},
+			},
+			host:         "exampleXcom",
+			uri:          "/path",
+			wantRedirect: false,
+			wantTarget:   "",
+		},
+		{
+			name: "regex host escaped dot matches literal dot",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegexHost, Source: "example\\.com/user/([0-9]+)", Target: "/profile/$1", Status: RedirectStatusMovedPermanent},
+			},
+			host:         "example.com",
+			uri:          "/user/789",
+			wantRedirect: true,
+			wantTarget:   "/profile/789",
+		},
+		{
+			name: "regex unescaped dot matches any character",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegex, Source: "/file.txt", Target: "/target", Status: RedirectStatusMovedPermanent},
+			},
+			host:         "example.com",
+			uri:          "/fileXtxt",
+			wantRedirect: true,
+			wantTarget:   "/target",
+		},
+		{
+			name: "regex escaped dot does not match other characters",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegex, Source: "/file\\.txt", Target: "/target", Status: RedirectStatusMovedPermanent},
+			},
+			host:         "example.com",
+			uri:          "/fileXtxt",
+			wantRedirect: false,
+			wantTarget:   "",
+		},
+		{
+			name: "regex escaped dot matches literal dot",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegex, Source: "/file\\.txt", Target: "/target", Status: RedirectStatusMovedPermanent},
+			},
+			host:         "example.com",
+			uri:          "/file.txt",
+			wantRedirect: true,
+			wantTarget:   "/target",
+		},
+		{
 			name: "no match returns nil",
 			redirects: []*Redirect{
 				{Type: RedirectTypeBasic, Source: "/existing", Target: "/new", Status: RedirectStatusMovedPermanent},
