@@ -380,6 +380,21 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess }: 
                       </div>
                     </div>
 
+                    {/* Host Types Rules */}
+                    <div className="p-4">
+                      <h5 className="text-sm font-medium text-slate-900 dark:text-white mb-2">Host Types (BASIC_HOST, REGEX_HOST)</h5>
+                      <div className="space-y-2 text-sm text-slate-600 dark:text-slate-400">
+                        <div className="flex items-start gap-2">
+                          <span className="mt-0.5 text-red-500 shrink-0">&#x2718;</span>
+                          <span>The <span className="font-mono text-xs px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300">source</span> must <strong className="text-slate-700 dark:text-slate-300">not</strong> contain the scheme (<span className="font-mono text-xs">http://</span> or <span className="font-mono text-xs">https://</span>). Only specify the host and path.</span>
+                        </div>
+                        <div className="flex items-start gap-2">
+                          <span className="mt-0.5 text-green-500 shrink-0">&#x2714;</span>
+                          <span>The <span className="font-mono text-xs px-1 py-0.5 rounded bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300">target</span> <strong className="text-slate-700 dark:text-slate-300">must</strong> contain the scheme, and therefore the domain (e.g. <span className="font-mono text-xs">https://example.com/path</span>).</span>
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Examples */}
                     <div className="p-4">
                       <h5 className="text-sm font-medium text-slate-900 dark:text-white mb-2">Examples</h5>

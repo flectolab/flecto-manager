@@ -75,6 +75,15 @@ Status: FOUND (302)
 - Request: `GET shop.example.com/products/shoes/42` → Redirects to `https://newshop.example.com/shoes/item/42`
 - Request: `GET other.com/products/shoes/42` → No match (different host)
 
+:::warning[Host Types (BASIC_HOST, REGEX_HOST)]
+
+For host-based redirect types, the following rules apply:
+
+- The **source** must **not** contain the scheme (`http://` or `https://`). Only specify the host and path (e.g. `example.com/path`).
+- The **target** **must** contain the scheme, and therefore the full domain (e.g. `https://example.com/path`).
+
+:::
+
 ## HTTP Status Codes
 
 | Status | Code | Description |
