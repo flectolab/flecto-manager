@@ -47,9 +47,9 @@ const sourcePlaceholders: Record<RedirectType, string> = {
 
 const targetPlaceholders: Record<RedirectType, string> = {
   BASIC: '/new-path',
-  BASIC_HOST: 'example.com/new-path or /new-path',
+  BASIC_HOST: 'https://example.com/new-path',
   REGEX: '/new-path or /new-path/$1',
-  REGEX_HOST: 'example.com/new-path or example.com/new-path/$1',
+  REGEX_HOST: 'https://example.com/new-path/$1',
 }
 
 // Validation helpers
@@ -64,17 +64,24 @@ function isValidPath(source: string): boolean {
 }
 
 function isValidHostPath(source: string): boolean {
-  // Pour BASIC_HOST, le format attendu est "host/path", pas "/path"
   if (source.startsWith('/')) return false
 
   try {
     const normalized = '//' + source
     const url = new URL(normalized, 'http://localhost')
-    // host doit exister et pathname doit contenir plus que juste '/'
     return url.host !== '' && url.pathname.length > 1
   } catch {
     return false
   }
+}
+
+function containsScheme(s: string): boolean {
+  return s.toLowerCase().includes('://')
+}
+
+function hasSchemePrefix(s: string): boolean {
+  const lower = s.toLowerCase()
+  return lower.startsWith('http://') || lower.startsWith('https://') || lower.startsWith('//')
 }
 
 function isValidRegex(source: string): boolean {
@@ -170,13 +177,21 @@ export function RedirectForm() {
           }
           break
         case 'BASIC_HOST':
-          if (!isValidHostPath(formData.source)) {
+          if (containsScheme(formData.source) || formData.source.startsWith('//')) {
+            newErrors.source = 'Source must not contain the scheme (http:// or https://)'
+          } else if (!isValidHostPath(formData.source)) {
             newErrors.source = 'Source must include a valid host and path (e.g., example.com/path)'
           }
           break
         case 'REGEX':
-        case 'REGEX_HOST':
           if (!isValidRegex(formData.source)) {
+            newErrors.source = 'Source must be a valid regular expression'
+          }
+          break
+        case 'REGEX_HOST':
+          if (containsScheme(formData.source)) {
+            newErrors.source = 'Source must not contain the scheme (http:// or https://)'
+          } else if (!isValidRegex(formData.source)) {
             newErrors.source = 'Source must be a valid regular expression'
           }
           break
@@ -185,6 +200,11 @@ export function RedirectForm() {
 
     if (!formData.target.trim()) {
       newErrors.target = 'Target is required'
+    } else if (
+      (formData.type === 'BASIC_HOST' || formData.type === 'REGEX_HOST') &&
+      !hasSchemePrefix(formData.target)
+    ) {
+      newErrors.target = 'Target must contain the scheme (e.g., https://example.com/path)'
     }
 
     setErrors(newErrors)
@@ -603,6 +623,20 @@ export function RedirectForm() {
               <li><span className="font-medium text-slate-700 dark:text-slate-300">Regex Host</span> - Regex with host</li>
               <li><span className="font-medium text-slate-700 dark:text-slate-300">Regex</span> - Regex path match</li>
             </ol>
+          </div>
+
+          {/* Host Types Warning */}
+          <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 p-5">
+            <h3 className="text-sm font-semibold text-amber-800 dark:text-amber-300 mb-3 flex items-center gap-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+              </svg>
+              Host Types (BASIC_HOST, REGEX_HOST)
+            </h3>
+            <div className="space-y-2 text-sm text-amber-700 dark:text-amber-400">
+              <p>The <span className="font-mono text-xs px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">source</span> must <strong>not</strong> contain the scheme (<span className="font-mono text-xs">http://</span> or <span className="font-mono text-xs">https://</span>). Only specify the host and path.</p>
+              <p>The <span className="font-mono text-xs px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40">target</span> <strong>must</strong> contain the scheme, and therefore the full domain (e.g. <span className="font-mono text-xs">https://example.com/path</span>).</p>
+            </div>
           </div>
 
           {/* Help Card */}
