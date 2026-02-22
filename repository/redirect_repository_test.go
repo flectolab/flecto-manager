@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	commonTypes "github.com/flectolab/flecto-manager/common/types"
@@ -602,6 +603,86 @@ func TestRedirectRepository_SearchPaginate_WithFilter(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Len(t, results, 5)
 	assert.Equal(t, int64(10), total)
+}
+
+func TestRedirectRepository_SearchBatch(t *testing.T) {
+	db := setupRedirectTestDB(t)
+	createTestRedirectNamespace(t, db, "test-ns", "Test Namespace")
+	createTestRedirectProject(t, db, "test-ns", "test-proj", "Test Project")
+	repo := NewRedirectRepository(db)
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		db.Create(&model.Redirect{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			IsPublished:   boolPtr(true),
+			Redirect: &commonTypes.Redirect{
+				Type:   commonTypes.RedirectTypeBasic,
+				Source: "/source-" + string(rune('a'+i)),
+				Target: "/target",
+				Status: commonTypes.RedirectStatusMovedPermanent,
+			},
+		})
+	}
+
+	t.Run("iterates all results", func(t *testing.T) {
+		var collected []model.Redirect
+		err := repo.SearchBatch(ctx, nil, 2, func(batch []model.Redirect) error {
+			collected = append(collected, batch...)
+			return nil
+		})
+
+		assert.NoError(t, err)
+		assert.Len(t, collected, 5)
+	})
+
+	t.Run("with custom query", func(t *testing.T) {
+		query := db.Model(&model.Redirect{}).Where("namespace_code = ? AND project_code = ?", "test-ns", "test-proj")
+		var batchCount int
+		err := repo.SearchBatch(ctx, query, 3, func(batch []model.Redirect) error {
+			batchCount++
+			return nil
+		})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 2, batchCount) // 3 + 2
+	})
+
+	t.Run("with nil query", func(t *testing.T) {
+		var collected []model.Redirect
+		err := repo.SearchBatch(ctx, nil, 100, func(batch []model.Redirect) error {
+			collected = append(collected, batch...)
+			return nil
+		})
+
+		assert.NoError(t, err)
+		assert.Len(t, collected, 5)
+	})
+
+	t.Run("callback error stops iteration", func(t *testing.T) {
+		expectedErr := errors.New("callback error")
+		var batchCount int
+		err := repo.SearchBatch(ctx, nil, 2, func(batch []model.Redirect) error {
+			batchCount++
+			return expectedErr
+		})
+
+		assert.Error(t, err)
+		assert.Equal(t, 1, batchCount)
+	})
+
+	t.Run("empty result set", func(t *testing.T) {
+		query := db.Model(&model.Redirect{}).Where("namespace_code = ?", "nonexistent")
+		var called bool
+		err := repo.SearchBatch(ctx, query, 10, func(batch []model.Redirect) error {
+			called = true
+			return nil
+		})
+
+		assert.NoError(t, err)
+		assert.False(t, called)
+	})
 }
 
 func TestRedirectRepository_SearchPaginate_PreloadsRedirectDraft(t *testing.T) {

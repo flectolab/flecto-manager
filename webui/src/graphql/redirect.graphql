@@ -166,6 +166,10 @@ mutation RollbackRedirectDraft($namespaceCode: String!, $projectCode: String!) {
   rollbackRedirectDraft(namespaceCode: $namespaceCode, projectCode: $projectCode)
 }
 
+query ExportRedirects($namespaceCode: String!, $projectCode: String!, $filter: RedirectFilter) {
+  exportRedirects(namespaceCode: $namespaceCode, projectCode: $projectCode, filter: $filter)
+}
+
 query CheckRedirect($namespaceCode: String!, $projectCode: String!, $redirectCheck: RedirectCheck!, $scope: RedirectScope) {
   projectRedirectDraftCheck(namespaceCode: $namespaceCode, projectCode: $projectCode, redirectCheck: $redirectCheck, scope: $scope) {
     url

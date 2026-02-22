@@ -31,4 +31,5 @@ input RedirectFilter {
 extend type Query {
     projectsRedirects(namespaceCode: String!, projectCode: String!, pagination: PaginationInput, filter: RedirectFilter, sort: [SortInput!]): RedirectList!
     projectRedirect(namespaceCode: String!, projectCode: String!, redirectID: Int64!): Redirect!
+    exportRedirects(namespaceCode: String!, projectCode: String!, filter: RedirectFilter): String!
 }

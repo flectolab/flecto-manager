@@ -16,6 +16,7 @@ type RedirectRepository interface {
 	FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, limit, offset int) ([]model.Redirect, int64, error)
 	Search(ctx context.Context, query *gorm.DB) ([]model.Redirect, error)
 	SearchPaginate(ctx context.Context, query *gorm.DB, limit, offset int) ([]model.Redirect, int64, error)
+	SearchBatch(ctx context.Context, query *gorm.DB, batchSize int, fn func([]model.Redirect) error) error
 }
 
 type redirectRepository struct {
@@ -105,4 +106,16 @@ func (r *redirectRepository) SearchPaginate(ctx context.Context, query *gorm.DB,
 	}
 
 	return redirects, total, nil
+}
+
+func (r *redirectRepository) SearchBatch(ctx context.Context, query *gorm.DB, batchSize int, fn func([]model.Redirect) error) error {
+	if query == nil {
+		query = r.db.WithContext(ctx).Model(&model.Redirect{})
+	}
+
+	var redirects []model.Redirect
+	result := query.FindInBatches(&redirects, batchSize, func(tx *gorm.DB, batch int) error {
+		return fn(redirects)
+	})
+	return result.Error
 }

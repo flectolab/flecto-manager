@@ -18,6 +18,7 @@ type RedirectService interface {
 	FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput) ([]model.Redirect, int64, error)
 	Search(ctx context.Context, query *gorm.DB) ([]model.Redirect, error)
 	SearchPaginate(ctx context.Context, pagination *commonTypes.PaginationInput, query *gorm.DB) (*model.RedirectList, error)
+	SearchBatch(ctx context.Context, query *gorm.DB, batchSize int, fn func([]model.Redirect) error) error
 }
 
 type redirectService struct {
@@ -68,4 +69,8 @@ func (s *redirectService) SearchPaginate(ctx context.Context, pagination *common
 		Limit:  pagination.GetLimit(),
 		Items:  redirects,
 	}, nil
+}
+
+func (s *redirectService) SearchBatch(ctx context.Context, query *gorm.DB, batchSize int, fn func([]model.Redirect) error) error {
+	return s.repo.SearchBatch(ctx, query, batchSize, fn)
 }

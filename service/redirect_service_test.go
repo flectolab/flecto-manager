@@ -316,6 +316,42 @@ func TestRedirectService_SearchPaginate(t *testing.T) {
 	})
 }
 
+func TestRedirectService_SearchBatch(t *testing.T) {
+	t.Run("success", func(t *testing.T) {
+		ctrl, mockRedirectRepo, svc := setupRedirectServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		fn := func(batch []model.Redirect) error { return nil }
+
+		mockRedirectRepo.EXPECT().
+			SearchBatch(ctx, nil, 1000, gomock.Any()).
+			Return(nil)
+
+		err := svc.SearchBatch(ctx, nil, 1000, fn)
+
+		assert.NoError(t, err)
+	})
+
+	t.Run("error", func(t *testing.T) {
+		ctrl, mockRedirectRepo, svc := setupRedirectServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		expectedErr := errors.New("batch error")
+		fn := func(batch []model.Redirect) error { return nil }
+
+		mockRedirectRepo.EXPECT().
+			SearchBatch(ctx, nil, 1000, gomock.Any()).
+			Return(expectedErr)
+
+		err := svc.SearchBatch(ctx, nil, 1000, fn)
+
+		assert.Error(t, err)
+		assert.Equal(t, expectedErr, err)
+	})
+}
+
 func TestRedirectService_GetTx(t *testing.T) {
 	ctrl, mockRedirectRepo, svc := setupRedirectServiceTest(t)
 	defer ctrl.Finish()

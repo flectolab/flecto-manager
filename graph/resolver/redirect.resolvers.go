@@ -8,6 +8,7 @@ package resolver
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/flectolab/flecto-manager/auth"
 	"github.com/flectolab/flecto-manager/common/types"
@@ -80,4 +81,74 @@ func (r *queryResolver) ProjectRedirect(ctx context.Context, namespaceCode strin
 	}
 
 	return r.RedirectService.GetByID(ctx, namespaceCode, projectCode, redirectID)
+}
+
+// ExportRedirects is the resolver for the exportRedirects field.
+func (r *queryResolver) ExportRedirects(ctx context.Context, namespaceCode string, projectCode string, filter *graph.RedirectFilter) (string, error) {
+	userCtx := auth.GetUser(ctx)
+	if !r.PermissionChecker.CanResource(userCtx.SubjectPermissions, namespaceCode, projectCode, model.ResourceTypeRedirect, model.ActionRead) {
+		return "", fmt.Errorf("user %s has no permission to access project %s/%s", userCtx.Username, namespaceCode, projectCode)
+	}
+
+	query := r.RedirectService.GetQuery(ctx).
+		Joins("LEFT JOIN redirect_drafts ON redirect_drafts.old_redirect_id = redirects.id").
+		Where(fmt.Sprintf("redirects.%s = ? AND redirects.%s = ?", model.ColumnNamespaceCode, model.ColumnProjectCode), namespaceCode, projectCode)
+
+	if filter != nil {
+		if filter.Search != nil && *filter.Search != "" {
+			search := "%" + *filter.Search + "%"
+			query = query.Where(
+				"redirects.source LIKE ? OR redirects.target LIKE ? OR redirect_drafts.new_source LIKE ? OR redirect_drafts.new_target LIKE ?",
+				search, search, search, search,
+			)
+		}
+		if len(filter.Types) > 0 {
+			query = query.Where("redirects.type IN ?", filter.Types)
+		}
+		if len(filter.Status) > 0 {
+			query = query.Where("redirects.status IN ?", filter.Status)
+		}
+		if len(filter.DraftStatus) > 0 {
+			var hasDraftTypes []model.DraftChangeType
+			includePublished := false
+
+			for _, status := range filter.DraftStatus {
+				if status == model.DraftChangeTypePublished {
+					includePublished = true
+				} else {
+					hasDraftTypes = append(hasDraftTypes, status)
+				}
+			}
+
+			if len(hasDraftTypes) > 0 && includePublished {
+				query = query.Where("redirect_drafts.change_type IN ? OR redirect_drafts.change_type IS NULL", hasDraftTypes)
+			} else if len(hasDraftTypes) > 0 {
+				query = query.Where("redirect_drafts.change_type IN ?", hasDraftTypes)
+			} else if includePublished {
+				query = query.Where("redirect_drafts.change_type IS NULL")
+			}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString("type\tsource\ttarget\tstatus\n")
+
+	err := r.RedirectService.SearchBatch(ctx, query, 1000, func(redirects []model.Redirect) error {
+		for _, redirect := range redirects {
+			sb.WriteString(string(redirect.Type))
+			sb.WriteByte('\t')
+			sb.WriteString(redirect.Source)
+			sb.WriteByte('\t')
+			sb.WriteString(redirect.Target)
+			sb.WriteByte('\t')
+			sb.WriteString(string(redirect.Status))
+			sb.WriteByte('\n')
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return sb.String(), nil
 }
