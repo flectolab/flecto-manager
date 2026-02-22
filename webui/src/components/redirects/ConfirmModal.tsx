@@ -1,6 +1,7 @@
 interface ConfirmModalProps {
   title: string
   message: string | React.ReactNode
+  error?: string | null
   confirmLabel?: string
   cancelLabel?: string
   variant?: 'danger' | 'warning' | 'info'
@@ -17,6 +18,7 @@ const variantStyles = {
 export function ConfirmModal({
   title,
   message,
+  error,
   confirmLabel = 'Confirm',
   cancelLabel = 'Cancel',
   variant = 'danger',
@@ -29,6 +31,11 @@ export function ConfirmModal({
       <div className="relative w-full max-w-md mx-4 rounded-xl bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 p-6">
         <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-2">{title}</h3>
         <div className="text-slate-600 dark:text-slate-400 mb-6">{message}</div>
+        {error && (
+          <div className="mb-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3">
+            <p className="text-sm text-red-700 dark:text-red-400">{error}</p>
+          </div>
+        )}
         <div className="flex gap-3 justify-end">
           <button
             onClick={onCancel}

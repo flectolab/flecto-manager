@@ -23,6 +23,7 @@ import { ReloadButton } from '../components/ReloadButton'
 import { SortableHeader, parseSortsFromUrl, serializeSortsToUrl } from '../components/SortableHeader'
 import { DraftBadge, ConfirmModal } from '../components/redirects'
 import { PathCell } from '../components/PathCell'
+import { OverlayLoader } from '../components/OverlayLoader'
 
 const PAGE_SIZE = 20
 
@@ -98,7 +99,9 @@ export function Pages() {
   const [deleteConfirm, setDeleteConfirm] = useState<PageWithDraft | null>(null)
   const [rollbackConfirm, setRollbackConfirm] = useState<PageWithDraft | null>(null)
   const [publishConfirm, setPublishConfirm] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
   const [rollbackAllConfirm, setRollbackAllConfirm] = useState(false)
+  const [rollbackAllError, setRollbackAllError] = useState<string | null>(null)
 
   const updateParams = (updates: { page?: number; q?: string; types?: PageType[]; contentTypes?: PageContentType[]; draftStatus?: DraftChangeType[]; sorts?: SortInput[] }) => {
     const newParams = new URLSearchParams(searchParams)
@@ -317,6 +320,7 @@ export function Pages() {
     if (!namespaceCode || !projectCode) return
 
     try {
+      setPublishError(null)
       await publishProject({
         variables: {
           namespaceCode,
@@ -327,7 +331,8 @@ export function Pages() {
       refetch()
       refetchProject()
     } catch (err) {
-      console.error('Failed to publish:', err)
+      const message = err instanceof Error ? err.message : 'Failed to publish'
+      setPublishError(message)
     }
   }
 
@@ -335,6 +340,7 @@ export function Pages() {
     if (!namespaceCode || !projectCode) return
 
     try {
+      setRollbackAllError(null)
       await rollbackAllDrafts({
         variables: {
           namespaceCode,
@@ -345,7 +351,8 @@ export function Pages() {
       refetch()
       refetchProject()
     } catch (err) {
-      console.error('Failed to rollback all drafts:', err)
+      const message = err instanceof Error ? err.message : 'Failed to rollback all drafts'
+      setRollbackAllError(message)
     }
   }
 
@@ -419,8 +426,15 @@ export function Pages() {
   const totalPages = Math.ceil(total / PAGE_SIZE)
   const draftCount = project?.countPageDrafts ?? 0
 
+  const overlayMessage = publishLoading
+    ? 'Publishing changes...'
+    : rollbackAllLoading
+    ? 'Rolling back changes...'
+    : null
+
   return (
     <div>
+      {overlayMessage && <OverlayLoader message={overlayMessage} />}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Pages</h2>
@@ -788,10 +802,11 @@ export function Pages() {
               configuration.
             </p>
           }
+          error={publishError}
           confirmLabel="Publish"
           variant="info"
           onConfirm={handlePublishConfirm}
-          onCancel={() => setPublishConfirm(false)}
+          onCancel={() => { setPublishConfirm(false); setPublishError(null) }}
         />
       )}
 
@@ -805,10 +820,11 @@ export function Pages() {
               configuration to its last published state.
             </p>
           }
+          error={rollbackAllError}
           confirmLabel="Rollback All"
           variant="danger"
           onConfirm={handleRollbackAllConfirm}
-          onCancel={() => setRollbackAllConfirm(false)}
+          onCancel={() => { setRollbackAllConfirm(false); setRollbackAllError(null) }}
         />
       )}
     </div>

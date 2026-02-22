@@ -16,6 +16,7 @@ interface ImportModalProps {
   projectCode: string
   onClose: () => void
   onSuccess: () => void
+  onLoadingChange?: (loading: boolean) => void
 }
 
 type ImportResult = NonNullable<ImportRedirectDraftMutation['importRedirectDraft']>
@@ -57,7 +58,7 @@ function exportErrorsToCsv(errors: ImportResult['errors']) {
   URL.revokeObjectURL(url)
 }
 
-export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess }: ImportModalProps) {
+export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess, onLoadingChange }: ImportModalProps) {
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [dragOver, setDragOver] = useState(false)
@@ -107,6 +108,7 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess }: 
 
     try {
       setError(null)
+      onLoadingChange?.(true)
       const result = await importRedirect({
         variables: {
           namespaceCode,
@@ -125,6 +127,8 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess }: 
       console.error('Import error:', err)
       const message = err instanceof Error ? err.message : 'Import failed'
       setError(message)
+    } finally {
+      onLoadingChange?.(false)
     }
   }
 
