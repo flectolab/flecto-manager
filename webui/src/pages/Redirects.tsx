@@ -31,6 +31,7 @@ import {
   ImportModal,
 } from '../components/redirects'
 import { PathCell } from '../components/PathCell'
+import { OverlayLoader } from '../components/OverlayLoader'
 
 const PAGE_SIZE = 20
 
@@ -78,9 +79,12 @@ export function Redirects() {
   const [deleteConfirm, setDeleteConfirm] = useState<RedirectWithDraft | null>(null)
   const [rollbackConfirm, setRollbackConfirm] = useState<RedirectWithDraft | null>(null)
   const [publishConfirm, setPublishConfirm] = useState(false)
+  const [publishError, setPublishError] = useState<string | null>(null)
   const [rollbackAllConfirm, setRollbackAllConfirm] = useState(false)
+  const [rollbackAllError, setRollbackAllError] = useState<string | null>(null)
   const [diffView, setDiffView] = useState<RedirectWithDraft | null>(null)
   const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importLoading, setImportLoading] = useState(false)
 
   const updateParams = (updates: { page?: number; q?: string; types?: RedirectType[]; draftStatus?: DraftChangeType[]; sorts?: SortInput[] }) => {
     const newParams = new URLSearchParams(searchParams)
@@ -322,6 +326,7 @@ export function Redirects() {
     if (!namespaceCode || !projectCode) return
 
     try {
+      setPublishError(null)
       await publishProject({
         variables: {
           namespaceCode,
@@ -332,7 +337,8 @@ export function Redirects() {
       refetch()
       refetchProject()
     } catch (err) {
-      console.error('Failed to publish:', err)
+      const message = err instanceof Error ? err.message : 'Failed to publish'
+      setPublishError(message)
     }
   }
 
@@ -340,6 +346,7 @@ export function Redirects() {
     if (!namespaceCode || !projectCode) return
 
     try {
+      setRollbackAllError(null)
       await rollbackAllDrafts({
         variables: {
           namespaceCode,
@@ -350,7 +357,8 @@ export function Redirects() {
       refetch()
       refetchProject()
     } catch (err) {
-      console.error('Failed to rollback all drafts:', err)
+      const message = err instanceof Error ? err.message : 'Failed to rollback all drafts'
+      setRollbackAllError(message)
     }
   }
 
@@ -423,8 +431,19 @@ export function Redirects() {
   const totalPages = Math.ceil(total / PAGE_SIZE)
   const draftCount = project?.countRedirectDrafts ?? 0
 
+  const overlayMessage = importLoading
+    ? 'Importing redirects...'
+    : exportLoading
+    ? 'Exporting redirects...'
+    : publishLoading
+    ? 'Publishing changes...'
+    : rollbackAllLoading
+    ? 'Rolling back changes...'
+    : null
+
   return (
     <div>
+      {overlayMessage && <OverlayLoader message={overlayMessage} />}
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Redirects</h2>
@@ -848,10 +867,11 @@ export function Redirects() {
               configuration.
             </p>
           }
+          error={publishError}
           confirmLabel="Publish"
           variant="info"
           onConfirm={handlePublishConfirm}
-          onCancel={() => setPublishConfirm(false)}
+          onCancel={() => { setPublishConfirm(false); setPublishError(null) }}
         />
       )}
 
@@ -866,10 +886,11 @@ export function Redirects() {
               configuration to its last published state.
             </p>
           }
+          error={rollbackAllError}
           confirmLabel="Rollback All"
           variant="danger"
           onConfirm={handleRollbackAllConfirm}
-          onCancel={() => setRollbackAllConfirm(false)}
+          onCancel={() => { setRollbackAllConfirm(false); setRollbackAllError(null) }}
         />
       )}
 
@@ -897,6 +918,7 @@ export function Redirects() {
             refetch()
             refetchProject()
           }}
+          onLoadingChange={setImportLoading}
         />
       )}
     </div>
