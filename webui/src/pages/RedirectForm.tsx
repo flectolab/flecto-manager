@@ -69,7 +69,7 @@ function isValidHostPath(source: string): boolean {
   try {
     const normalized = '//' + source
     const url = new URL(normalized, 'http://localhost')
-    return url.host !== '' && url.pathname.length > 1
+    return url.host !== '' && url.pathname.length >= 1
   } catch {
     return false
   }
