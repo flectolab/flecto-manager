@@ -10,6 +10,15 @@ import (
 	"github.com/flectolab/flecto-manager/database"
 )
 
+// columnCollations overrides the collation for specific columns.
+// Format: table_name -> column_name -> collation
+var columnCollations = map[string]map[string]string{
+	"redirects":       {"source": "utf8mb4_uca1400_as_cs"},
+	"redirect_drafts": {"new_source": "utf8mb4_uca1400_as_cs"},
+	"pages":           {"path": "utf8mb4_uca1400_as_cs"},
+	"page_drafts":     {"new_path": "utf8mb4_uca1400_as_cs"},
+}
+
 // uniqueIndexes defines composite unique indexes that cannot be expressed
 // via GORM tags due to embedded struct limitations.
 // Format: table_name -> index definition (without the trailing comma)
@@ -56,6 +65,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Apply column-level collation overrides
+	stmts = applyColumnCollations(stmts)
+
 	// Add unique indexes to the generated SQL
 	stmts = addUniqueIndexes(stmts)
 
@@ -66,6 +78,49 @@ func main() {
 	stmts = addCustomForeignKeys(stmts)
 
 	io.WriteString(os.Stdout, stmts)
+}
+
+// applyColumnCollations overrides the collation for specific columns in CREATE TABLE statements
+func applyColumnCollations(sql string) string {
+	for table, columns := range columnCollations {
+		tableMarker := fmt.Sprintf("CREATE TABLE `%s`", table)
+		tableStart := strings.Index(sql, tableMarker)
+		if tableStart == -1 {
+			continue
+		}
+
+		tableEnd := strings.Index(sql[tableStart:], ");")
+		if tableEnd == -1 {
+			continue
+		}
+		tableEnd += tableStart
+
+		tableDef := sql[tableStart:tableEnd]
+		for col, collation := range columns {
+			// Match column definition like: `column_name` varchar(600)
+			colMarker := fmt.Sprintf("`%s` varchar", col)
+			colPos := strings.Index(tableDef, colMarker)
+			if colPos == -1 {
+				continue
+			}
+
+			// Find the end of the type definition (next comma or newline)
+			afterCol := colPos + len(colMarker)
+			// Skip past varchar(N)
+			parenEnd := strings.Index(tableDef[afterCol:], ")")
+			if parenEnd == -1 {
+				continue
+			}
+			insertPos := afterCol + parenEnd + 1
+
+			collateStr := fmt.Sprintf(" COLLATE %s", collation)
+			tableDef = tableDef[:insertPos] + collateStr + tableDef[insertPos:]
+		}
+
+		sql = sql[:tableStart] + tableDef + sql[tableEnd:]
+	}
+
+	return sql
 }
 
 // addUniqueIndexes injects unique index definitions into CREATE TABLE statements
