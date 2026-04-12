@@ -525,3 +525,171 @@ func TestRoleRepository_HasUserRole(t *testing.T) {
 		assert.True(t, hasRole)
 	})
 }
+
+func TestRoleRepository_GetUserRolesByType(t *testing.T) {
+	db := setupRoleTestDB(t)
+	repo := NewRoleRepository(db)
+	userRepo := NewUserRepository(db)
+	ctx := context.Background()
+
+	user := &model.User{Username: "testuser", Active: boolPtr(true)}
+	_ = userRepo.Create(ctx, user)
+
+	role1 := &model.Role{Code: "admin", Type: model.RoleTypeRole}
+	role2 := &model.Role{Code: "editor", Type: model.RoleTypeRole}
+	role3 := &model.Role{Code: "user.1", Type: model.RoleTypeUser}
+	_ = repo.Create(ctx, role1)
+	_ = repo.Create(ctx, role2)
+	_ = repo.Create(ctx, role3)
+
+	_ = repo.AddUserToRole(ctx, user.ID, role1.ID)
+	_ = repo.AddUserToRole(ctx, user.ID, role2.ID)
+	_ = repo.AddUserToRole(ctx, user.ID, role3.ID)
+
+	t.Run("filter by role type", func(t *testing.T) {
+		roles, err := repo.GetUserRolesByType(ctx, user.ID, model.RoleTypeRole)
+		assert.NoError(t, err)
+		assert.Len(t, roles, 2)
+		for _, r := range roles {
+			assert.Equal(t, model.RoleTypeRole, r.Type)
+		}
+	})
+
+	t.Run("filter by user type", func(t *testing.T) {
+		roles, err := repo.GetUserRolesByType(ctx, user.ID, model.RoleTypeUser)
+		assert.NoError(t, err)
+		assert.Len(t, roles, 1)
+		assert.Equal(t, model.RoleTypeUser, roles[0].Type)
+	})
+
+	t.Run("user without roles of type returns empty", func(t *testing.T) {
+		user2 := &model.User{Username: "noroles", Active: boolPtr(true)}
+		_ = userRepo.Create(ctx, user2)
+
+		roles, err := repo.GetUserRolesByType(ctx, user2.ID, model.RoleTypeRole)
+		assert.NoError(t, err)
+		assert.Len(t, roles, 0)
+	})
+}
+
+func TestRoleRepository_GetRoleUsersPaginate(t *testing.T) {
+	db := setupRoleTestDB(t)
+	repo := NewRoleRepository(db)
+	userRepo := NewUserRepository(db)
+	ctx := context.Background()
+
+	role := &model.Role{Code: "testrole", Type: model.RoleTypeRole}
+	_ = repo.Create(ctx, role)
+
+	for i := 0; i < 10; i++ {
+		user := &model.User{
+			Username:  "user" + string(rune('a'+i)),
+			Firstname: "First" + string(rune('a'+i)),
+			Lastname:  "Last" + string(rune('a'+i)),
+			Active:    boolPtr(true),
+		}
+		_ = userRepo.Create(ctx, user)
+		_ = repo.AddUserToRole(ctx, user.ID, role.ID)
+	}
+
+	t.Run("paginate with limit", func(t *testing.T) {
+		users, total, err := repo.GetRoleUsersPaginate(ctx, role.ID, "", 5, 0)
+		assert.NoError(t, err)
+		assert.Len(t, users, 5)
+		assert.Equal(t, int64(10), total)
+	})
+
+	t.Run("paginate with offset", func(t *testing.T) {
+		users, total, err := repo.GetRoleUsersPaginate(ctx, role.ID, "", 5, 5)
+		assert.NoError(t, err)
+		assert.Len(t, users, 5)
+		assert.Equal(t, int64(10), total)
+	})
+
+	t.Run("paginate without limit returns all", func(t *testing.T) {
+		users, total, err := repo.GetRoleUsersPaginate(ctx, role.ID, "", 0, 0)
+		assert.NoError(t, err)
+		assert.Len(t, users, 10)
+		assert.Equal(t, int64(10), total)
+	})
+
+	t.Run("search by username", func(t *testing.T) {
+		users, total, err := repo.GetRoleUsersPaginate(ctx, role.ID, "usera", 0, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), total)
+		assert.Len(t, users, 1)
+		assert.Equal(t, "usera", users[0].Username)
+	})
+
+	t.Run("search by firstname", func(t *testing.T) {
+		users, total, err := repo.GetRoleUsersPaginate(ctx, role.ID, "Firstb", 0, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(1), total)
+		assert.Len(t, users, 1)
+	})
+
+	t.Run("search no match returns empty", func(t *testing.T) {
+		users, total, err := repo.GetRoleUsersPaginate(ctx, role.ID, "nonexistent", 0, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), total)
+		assert.Len(t, users, 0)
+	})
+
+	t.Run("empty role returns empty", func(t *testing.T) {
+		emptyRole := &model.Role{Code: "emptyrole", Type: model.RoleTypeRole}
+		_ = repo.Create(ctx, emptyRole)
+
+		users, total, err := repo.GetRoleUsersPaginate(ctx, emptyRole.ID, "", 0, 0)
+		assert.NoError(t, err)
+		assert.Equal(t, int64(0), total)
+		assert.Len(t, users, 0)
+	})
+}
+
+func TestRoleRepository_GetUsersNotInRole(t *testing.T) {
+	db := setupRoleTestDB(t)
+	repo := NewRoleRepository(db)
+	userRepo := NewUserRepository(db)
+	ctx := context.Background()
+
+	role := &model.Role{Code: "testrole", Type: model.RoleTypeRole}
+	_ = repo.Create(ctx, role)
+
+	user1 := &model.User{Username: "inrole", Firstname: "Alice", Active: boolPtr(true)}
+	user2 := &model.User{Username: "notrole", Firstname: "Bob", Active: boolPtr(true)}
+	user3 := &model.User{Username: "inactive", Active: boolPtr(false)}
+	_ = userRepo.Create(ctx, user1)
+	_ = userRepo.Create(ctx, user2)
+	_ = userRepo.Create(ctx, user3)
+
+	_ = repo.AddUserToRole(ctx, user1.ID, role.ID)
+
+	t.Run("returns only active users not in role", func(t *testing.T) {
+		users, err := repo.GetUsersNotInRole(ctx, role.ID, "", 0)
+		assert.NoError(t, err)
+		assert.Len(t, users, 1)
+		assert.Equal(t, "notrole", users[0].Username)
+	})
+
+	t.Run("search filters results", func(t *testing.T) {
+		users, err := repo.GetUsersNotInRole(ctx, role.ID, "Bob", 0)
+		assert.NoError(t, err)
+		assert.Len(t, users, 1)
+		assert.Equal(t, "notrole", users[0].Username)
+	})
+
+	t.Run("search no match returns empty", func(t *testing.T) {
+		users, err := repo.GetUsersNotInRole(ctx, role.ID, "nonexistent", 0)
+		assert.NoError(t, err)
+		assert.Len(t, users, 0)
+	})
+
+	t.Run("limit restricts results", func(t *testing.T) {
+		user4 := &model.User{Username: "another", Active: boolPtr(true)}
+		_ = userRepo.Create(ctx, user4)
+
+		users, err := repo.GetUsersNotInRole(ctx, role.ID, "", 1)
+		assert.NoError(t, err)
+		assert.Len(t, users, 1)
+	})
+}
