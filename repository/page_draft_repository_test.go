@@ -213,7 +213,9 @@ func TestPageDraftRepository_FindByProject(t *testing.T) {
 		for _, draft := range results {
 			assert.Equal(t, "test-ns", draft.NamespaceCode)
 			assert.Equal(t, "test-proj", draft.ProjectCode)
-			assert.NotNil(t, draft.OldPage)
+			// OldPage is not preloaded: FindByProject must stay placeholder-free
+			assert.Nil(t, draft.OldPage)
+			assert.NotNil(t, draft.OldPageID)
 		}
 	})
 

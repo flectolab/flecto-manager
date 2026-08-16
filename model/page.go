@@ -15,16 +15,16 @@ var PageSortableColumns = map[string]string{
 
 type Page struct {
 	ID            int64     `json:"id" gorm:"primaryKey;autoIncrement"`
-	NamespaceCode string    `json:"-" gorm:"size:50;index:idx_pages_namespace_project"`
-	ProjectCode   string    `json:"-" gorm:"size:50;index:idx_pages_namespace_project"`
+	NamespaceCode string    `json:"-" gorm:"size:50;index:idx_pages_namespace_project;index:idx_pages_ns_proj_updated,priority:1;index:idx_pages_ns_proj_created,priority:1"`
+	ProjectCode   string    `json:"-" gorm:"size:50;index:idx_pages_namespace_project;index:idx_pages_ns_proj_updated,priority:2;index:idx_pages_ns_proj_created,priority:2"`
 	Project       *Project  `json:"project" gorm:"foreignKey:NamespaceCode,ProjectCode;references:NamespaceCode,ProjectCode;"`
 	IsPublished   *bool     `json:"is_published" gorm:"default:false;not null"`
 	PublishedAt   time.Time `json:"publishedAt" gorm:"type:timestamp"`
 	ContentSize   int64     `json:"contentSize" gorm:"default:0;not null"`
 	*commonTypes.Page
 	PageDraft *PageDraft `json:"draft" gorm:"foreignKey:OldPageID;references:ID"`
-	CreatedAt time.Time  `json:"createdAt" gorm:"type:timestamp"`
-	UpdatedAt time.Time  `json:"updatedAt" gorm:"type:timestamp"`
+	CreatedAt time.Time  `json:"createdAt" gorm:"type:timestamp;index:idx_pages_ns_proj_created,priority:3,sort:desc"`
+	UpdatedAt time.Time  `json:"updatedAt" gorm:"type:timestamp;index:idx_pages_ns_proj_updated,priority:3,sort:desc"`
 }
 
 type PageList = commonTypes.PaginatedResult[Page]

@@ -143,8 +143,10 @@ func createGraphQLHandler(ctx *context.Context, services *service.Services, perm
 	srv.AddTransport(transport.GET{})
 	srv.AddTransport(transport.POST{})
 	srv.AddTransport(transport.MultipartForm{
-		MaxMemory:     2 << 20, // 2MB
-		MaxUploadSize: 2 << 20, // 2MB
+		// Keep MaxMemory small so large imports spill to a temp file instead of
+		// being buffered in RAM; the import service streams from that file.
+		MaxMemory:     32 << 20,                          // 32MB
+		MaxUploadSize: service.MaxImportFileSize + 1<<20, // import limit + multipart overhead
 	})
 
 	// Add extensions

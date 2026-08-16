@@ -8,7 +8,9 @@ import {
 import type { ImportRedirectDraftMutation, ImportErrorReason } from '../../generated/graphql'
 import { PathCell } from '../PathCell'
 
-const MAX_FILE_SIZE = 2 * 1024 * 1024 // 2MB
+// Keep in sync with service.MaxImportFileSize (Go side)
+const MAX_FILE_SIZE = 200 * 1024 * 1024 // 200MB
+const MAX_FILE_SIZE_LABEL = '200MB'
 const ERRORS_PER_PAGE = 10
 
 interface ImportModalProps {
@@ -78,7 +80,7 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess, on
         return
       }
       if (selectedFile.size > MAX_FILE_SIZE) {
-        setError(`File too large. Maximum size is 2MB. Your file is ${(selectedFile.size / 1024 / 1024).toFixed(2)}MB.`)
+        setError(`File too large. Maximum size is ${MAX_FILE_SIZE_LABEL}. Your file is ${(selectedFile.size / 1024 / 1024).toFixed(2)}MB.`)
         return
       }
       setFile(selectedFile)
@@ -227,7 +229,10 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess, on
                       <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      Errors ({importResult.errors.length})
+                      Errors ({importResult.errors.length}
+                      {importResult.errorCount > importResult.errors.length &&
+                        ` of ${importResult.errorCount}`}
+                      )
                     </h4>
                     <button
                       onClick={() => exportErrorsToCsv(importResult.errors)}
@@ -499,7 +504,7 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess, on
                     <p className="text-slate-600 dark:text-slate-400 mb-1">
                       Drag and drop your file here, or <span className="text-brand-purple font-medium">browse</span>
                     </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-500">.csv or .tsv files only (max 2MB)</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-500">.csv or .tsv files only (max {MAX_FILE_SIZE_LABEL})</p>
                   </>
                 )}
               </div>

@@ -3,7 +3,8 @@ package service
 import (
 	"bytes"
 	"context"
-	"errors"
+	"fmt"
+	"io"
 	"strings"
 	"testing"
 
@@ -76,10 +77,17 @@ func TestRedirectImportService_ValidateFile(t *testing.T) {
 			wantErr:     false,
 		},
 		{
+			name:        "file at the size limit",
+			filename:    "redirects.csv",
+			contentType: "text/csv",
+			size:        MaxImportFileSize,
+			wantErr:     false,
+		},
+		{
 			name:        "file too large",
 			filename:    "redirects.csv",
 			contentType: "text/csv",
-			size:        3 * 1024 * 1024,
+			size:        MaxImportFileSize + 1,
 			wantErr:     true,
 			errContains: "file too large",
 		},
@@ -369,21 +377,20 @@ func TestRedirectImportService_ParseFile(t *testing.T) {
 	})
 }
 
+// tsvFile builds an import file from "type\tsource\ttarget\tstatus" rows.
+func tsvFile(rows ...string) io.Reader {
+	return strings.NewReader("type\tsource\ttarget\tstatus\n" + strings.Join(rows, "\n") + "\n")
+}
+
 func TestRedirectImportService_Import(t *testing.T) {
 	t.Run("success create new redirects", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/old1", Target: "/new1", Status: commonTypes.RedirectStatusMovedPermanent},
-			{LineNum: 3, Type: commonTypes.RedirectTypeBasic, Source: "/old2", Target: "/new2", Status: commonTypes.RedirectStatusFound},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/old1", nil, nil).Return(true, nil)
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/old2", nil, nil).Return(true, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: false})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/old1\t/new1\t301",
+			"BASIC\t/old2\t/new2\t302",
+		), ImportRedirectOptions{Overwrite: false})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
@@ -392,7 +399,6 @@ func TestRedirectImportService_Import(t *testing.T) {
 		assert.Equal(t, 0, result.SkippedCount)
 		assert.Equal(t, 0, result.ErrorCount)
 
-		// Verify redirects and drafts were created
 		var redirects []model.Redirect
 		db.Find(&redirects)
 		assert.Len(t, redirects, 2)
@@ -400,14 +406,41 @@ func TestRedirectImportService_Import(t *testing.T) {
 		var drafts []model.RedirectDraft
 		db.Find(&drafts)
 		assert.Len(t, drafts, 2)
+		// every draft points at the redirect created for it
+		for _, d := range drafts {
+			assert.Equal(t, model.DraftChangeTypeCreate, d.ChangeType)
+			assert.NotNil(t, d.OldRedirectID)
+		}
 	})
 
-	t.Run("success with empty rows", func(t *testing.T) {
+	t.Run("draft is linked to its own redirect", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		_, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/a\t/target-a\t301",
+			"BASIC\t/b\t/target-b\t301",
+			"BASIC\t/c\t/target-c\t301",
+		), ImportRedirectOptions{})
+		assert.NoError(t, err)
+
+		var drafts []model.RedirectDraft
+		db.Order("new_source").Find(&drafts)
+		assert.Len(t, drafts, 3)
+
+		seen := map[int64]bool{}
+		for _, d := range drafts {
+			assert.False(t, seen[*d.OldRedirectID], "two drafts share the same redirect")
+			seen[*d.OldRedirectID] = true
+		}
+	})
+
+	t.Run("success with header only", func(t *testing.T) {
 		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-		result, err := svc.Import(ctx, "ns", "proj", []ParsedRedirectRow{}, ImportRedirectOptions{})
+		result, err := svc.Import(context.Background(), "ns", "proj",
+			strings.NewReader("type\tsource\ttarget\tstatus\n"), ImportRedirectOptions{})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
@@ -415,140 +448,153 @@ func TestRedirectImportService_Import(t *testing.T) {
 		assert.Equal(t, 0, result.ImportedCount)
 	})
 
-	t.Run("invalid data", func(t *testing.T) {
-		ctrl, mockRepo, _, svc := setupRedirectImportServiceTest(t)
+	t.Run("invalid header", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasicHost, Source: "/old1", Target: "/new1", Status: commonTypes.RedirectStatusMovedPermanent},
+		result, err := svc.Import(context.Background(), "ns", "proj",
+			strings.NewReader("a\tb\tc\td\n"), ImportRedirectOptions{})
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+	})
+
+	t.Run("parse errors are reported by Import", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/ok\t/target\t301",
+			"NOPE\t/bad-type\t/target\t301",
+			"BASIC\t\t/target\t301",
+			"BASIC\t/no-target\t\t301",
+			"BASIC\t/bad-status\t/target\t999",
+			"BASIC\t/ok\t/other\t301",
+		), ImportRedirectOptions{})
+
+		assert.NoError(t, err)
+		assert.False(t, result.Success)
+		assert.Equal(t, 6, result.TotalLines)
+		assert.Equal(t, 1, result.ImportedCount)
+		assert.Equal(t, 5, result.ErrorCount)
+
+		reasons := make([]ImportErrorReason, 0, len(result.Errors))
+		for _, e := range result.Errors {
+			reasons = append(reasons, e.Reason)
 		}
+		assert.Equal(t, []ImportErrorReason{
+			ImportErrorInvalidType,
+			ImportErrorEmptySource,
+			ImportErrorEmptyTarget,
+			ImportErrorInvalidStatus,
+			ImportErrorDuplicateInFile,
+		}, reasons)
+	})
 
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/old1", nil, nil).Return(true, nil)
+	t.Run("invalid redirect data", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
 
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: false})
+		// BASIC_HOST requires a host in the source
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC_HOST\t/old1\t/new1\t301",
+		), ImportRedirectOptions{Overwrite: false})
 
 		assert.NoError(t, err)
 		assert.False(t, result.Success)
 		assert.Equal(t, 1, result.TotalLines)
 		assert.Equal(t, 0, result.ImportedCount)
-		assert.Equal(t, 0, result.SkippedCount)
 		assert.Equal(t, 1, result.ErrorCount)
-
+		assert.Equal(t, ImportErrorInvalidRedirect, result.Errors[0].Reason)
 	})
 
 	t.Run("error source already exists without overwrite", func(t *testing.T) {
-		ctrl, mockRepo, _, svc := setupRedirectImportServiceTest(t)
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/existing", Target: "/new", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
+		db.Create(&model.Redirect{
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
+			Redirect: &commonTypes.Redirect{
+				Type: commonTypes.RedirectTypeBasic, Source: "/existing",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent,
+			},
+		})
 
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/existing", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: false})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/existing\t/new\t301",
+		), ImportRedirectOptions{Overwrite: false})
 
 		assert.NoError(t, err)
 		assert.False(t, result.Success)
 		assert.Equal(t, 1, result.ErrorCount)
+		assert.Equal(t, 0, result.ImportedCount)
 		assert.Equal(t, ImportErrorSourceAlreadyExists, result.Errors[0].Reason)
 	})
 
 	t.Run("success overwrite existing draft", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-
-		// Create existing redirect with draft
 		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
 			Redirect: &commonTypes.Redirect{
-				Source: "/existing",
-				Target: "/old-target",
-				Type:   commonTypes.RedirectTypeBasic,
-				Status: commonTypes.RedirectStatusMovedPermanent,
+				Type: commonTypes.RedirectTypeBasic, Source: "/existing",
+				Target: "/old-target", Status: commonTypes.RedirectStatusMovedPermanent,
 			},
-			IsPublished: types.Ptr(true),
 		}
 		db.Create(redirect)
-
 		draft := &model.RedirectDraft{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			OldRedirectID: &redirect.ID,
-			ChangeType:    model.DraftChangeTypeUpdate,
+			NamespaceCode: "ns", ProjectCode: "proj",
+			OldRedirectID: &redirect.ID, ChangeType: model.DraftChangeTypeUpdate,
 			NewRedirect: &commonTypes.Redirect{
-				Type:   commonTypes.RedirectTypeBasic,
-				Source: "/existing",
-				Target: "/draft-target",
-				Status: commonTypes.RedirectStatusMovedPermanent,
+				Type: commonTypes.RedirectTypeBasic, Source: "/existing",
+				Target: "/draft-target", Status: commonTypes.RedirectStatusMovedPermanent,
 			},
 		}
 		db.Create(draft)
 
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/existing", Target: "/imported-target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/existing", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/existing\t/imported-target\t301",
+		), ImportRedirectOptions{Overwrite: true})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
 		assert.Equal(t, 1, result.ImportedCount)
 
-		// Verify draft was updated
-		var updatedDraft model.RedirectDraft
-		db.First(&updatedDraft, draft.ID)
-		assert.Equal(t, "/imported-target", updatedDraft.NewRedirect.Target)
+		var updated model.RedirectDraft
+		db.First(&updated, draft.ID)
+		assert.Equal(t, "/imported-target", updated.NewRedirect.Target)
+
+		// the upsert must not have inserted a second draft
+		var count int64
+		db.Model(&model.RedirectDraft{}).Count(&count)
+		assert.Equal(t, int64(1), count)
 	})
 
-	t.Run("skip when data is identical", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
+	t.Run("skip when draft data is identical", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-
-		// Create existing redirect with draft containing same data
 		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
 			Redirect: &commonTypes.Redirect{
-				Source: "/existing",
-				Target: "/target",
-				Type:   commonTypes.RedirectTypeBasic,
-				Status: commonTypes.RedirectStatusMovedPermanent,
+				Type: commonTypes.RedirectTypeBasic, Source: "/existing",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent,
 			},
-			IsPublished: types.Ptr(true),
 		}
 		db.Create(redirect)
-
-		draft := &model.RedirectDraft{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			OldRedirectID: &redirect.ID,
-			ChangeType:    model.DraftChangeTypeUpdate,
+		db.Create(&model.RedirectDraft{
+			NamespaceCode: "ns", ProjectCode: "proj",
+			OldRedirectID: &redirect.ID, ChangeType: model.DraftChangeTypeUpdate,
 			NewRedirect: &commonTypes.Redirect{
-				Type:   commonTypes.RedirectTypeBasic,
-				Source: "/existing",
-				Target: "/target",
-				Status: commonTypes.RedirectStatusMovedPermanent,
+				Type: commonTypes.RedirectTypeBasic, Source: "/existing",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent,
 			},
-		}
-		db.Create(draft)
+		})
 
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/existing", Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/existing", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/existing\t/target\t301",
+		), ImportRedirectOptions{Overwrite: true})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
@@ -557,32 +603,20 @@ func TestRedirectImportService_Import(t *testing.T) {
 	})
 
 	t.Run("skip when published data is identical", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-
-		// Create existing published redirect without draft
-		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
+		db.Create(&model.Redirect{
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
 			Redirect: &commonTypes.Redirect{
-				Source: "/existing",
-				Target: "/target",
-				Type:   commonTypes.RedirectTypeBasic,
-				Status: commonTypes.RedirectStatusMovedPermanent,
+				Type: commonTypes.RedirectTypeBasic, Source: "/existing",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent,
 			},
-			IsPublished: types.Ptr(true),
-		}
-		db.Create(redirect)
+		})
 
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/existing", Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/existing", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/existing\t/target\t301",
+		), ImportRedirectOptions{Overwrite: true})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
@@ -591,38 +625,26 @@ func TestRedirectImportService_Import(t *testing.T) {
 	})
 
 	t.Run("create draft for published redirect with different data", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-
-		// Create existing published redirect without draft
 		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
 			Redirect: &commonTypes.Redirect{
-				Source: "/existing",
-				Target: "/old-target",
-				Type:   commonTypes.RedirectTypeBasic,
-				Status: commonTypes.RedirectStatusMovedPermanent,
+				Type: commonTypes.RedirectTypeBasic, Source: "/existing",
+				Target: "/old-target", Status: commonTypes.RedirectStatusMovedPermanent,
 			},
-			IsPublished: types.Ptr(true),
 		}
 		db.Create(redirect)
 
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/existing", Target: "/new-target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/existing", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/existing\t/new-target\t301",
+		), ImportRedirectOptions{Overwrite: true})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
 		assert.Equal(t, 1, result.ImportedCount)
 
-		// Verify draft was created
 		var drafts []model.RedirectDraft
 		db.Where("old_redirect_id = ?", redirect.ID).Find(&drafts)
 		assert.Len(t, drafts, 1)
@@ -631,292 +653,54 @@ func TestRedirectImportService_Import(t *testing.T) {
 	})
 
 	t.Run("update existing unpublished draft", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-
-		// Create unpublished redirect with draft
-		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			IsPublished:   types.Ptr(false),
-		}
+		redirect := &model.Redirect{NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(false)}
 		db.Create(redirect)
-
 		draft := &model.RedirectDraft{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			OldRedirectID: &redirect.ID,
-			ChangeType:    model.DraftChangeTypeCreate,
+			NamespaceCode: "ns", ProjectCode: "proj",
+			OldRedirectID: &redirect.ID, ChangeType: model.DraftChangeTypeCreate,
 			NewRedirect: &commonTypes.Redirect{
-				Type:   commonTypes.RedirectTypeBasic,
-				Source: "/new-source",
-				Target: "/old-target",
-				Status: commonTypes.RedirectStatusMovedPermanent,
+				Type: commonTypes.RedirectTypeBasic, Source: "/new-source",
+				Target: "/old-target", Status: commonTypes.RedirectStatusMovedPermanent,
 			},
 		}
 		db.Create(draft)
 
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/new-source", Target: "/updated-target", Status: commonTypes.RedirectStatusFound},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/new-source", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/new-source\t/updated-target\t302",
+		), ImportRedirectOptions{Overwrite: true})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
 		assert.Equal(t, 1, result.ImportedCount)
 
-		// Verify draft was updated
-		var updatedDraft model.RedirectDraft
-		db.First(&updatedDraft, draft.ID)
-		assert.Equal(t, "/updated-target", updatedDraft.NewRedirect.Target)
-		assert.Equal(t, commonTypes.RedirectStatusFound, updatedDraft.NewRedirect.Status)
-	})
-
-	t.Run("error checking source availability", func(t *testing.T) {
-		ctrl, mockRepo, _, svc := setupRedirectImportServiceTest(t)
-		defer ctrl.Finish()
-
-		ctx := context.Background()
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/source", Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/source", nil, nil).Return(false, errors.New("database error"))
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{})
-
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "failed to check source availability")
-		assert.Nil(t, result)
-	})
-
-	t.Run("all rows filtered out by errors", func(t *testing.T) {
-		ctrl, mockRepo, _, svc := setupRedirectImportServiceTest(t)
-		defer ctrl.Finish()
-
-		ctx := context.Background()
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/existing", Target: "/new", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/existing", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: false})
-
-		assert.NoError(t, err)
-		assert.False(t, result.Success)
-		assert.Equal(t, 1, result.ErrorCount)
-		assert.Equal(t, 0, result.ImportedCount)
-	})
-
-	t.Run("error saving existing draft update", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
-		defer ctrl.Finish()
-
-		ctx := context.Background()
-
-		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			Redirect: &commonTypes.Redirect{
-				Source: "/existing",
-				Target: "/old-target",
-				Type:   commonTypes.RedirectTypeBasic,
-				Status: commonTypes.RedirectStatusMovedPermanent,
-			},
-			IsPublished: types.Ptr(true),
-		}
-		db.Create(redirect)
-
-		draft := &model.RedirectDraft{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			OldRedirectID: &redirect.ID,
-			ChangeType:    model.DraftChangeTypeUpdate,
-			NewRedirect: &commonTypes.Redirect{
-				Type:   commonTypes.RedirectTypeBasic,
-				Source: "/existing",
-				Target: "/draft-target",
-				Status: commonTypes.RedirectStatusMovedPermanent,
-			},
-		}
-		db.Create(draft)
-
-		db.Migrator().DropTable(&model.RedirectDraft{})
-
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/existing", Target: "/new-target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/existing", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
-
-		assert.NoError(t, err)
-		assert.Equal(t, 1, result.ErrorCount)
-		assert.Equal(t, ImportErrorDatabaseError, result.Errors[0].Reason)
-	})
-
-	t.Run("error creating redirect in createNewDraft", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
-		defer ctrl.Finish()
-
-		ctx := context.Background()
-
-		db.Migrator().DropTable(&model.Redirect{})
-
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/new", Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/new", nil, nil).Return(true, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: false})
-
-		assert.NoError(t, err)
-		assert.Equal(t, 1, result.ErrorCount)
-		assert.Equal(t, ImportErrorDatabaseError, result.Errors[0].Reason)
-		assert.Contains(t, result.Errors[0].Message, "failed to create redirect")
-	})
-
-	t.Run("error creating draft in createNewDraft", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
-		defer ctrl.Finish()
-
-		ctx := context.Background()
-
-		db.Migrator().DropTable(&model.RedirectDraft{})
-
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/new", Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/new", nil, nil).Return(true, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: false})
-
-		assert.NoError(t, err)
-		assert.Equal(t, 1, result.ErrorCount)
-		assert.Equal(t, ImportErrorDatabaseError, result.Errors[0].Reason)
-		assert.Contains(t, result.Errors[0].Message, "failed to create redirect draft")
-	})
-
-	t.Run("error creating draft for published redirect", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
-		defer ctrl.Finish()
-
-		ctx := context.Background()
-
-		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			Redirect: &commonTypes.Redirect{
-				Source: "/existing",
-				Target: "/old-target",
-				Type:   commonTypes.RedirectTypeBasic,
-				Status: commonTypes.RedirectStatusMovedPermanent,
-			},
-			IsPublished: types.Ptr(true),
-		}
-		db.Create(redirect)
-
-		db.Migrator().DropTable(&model.RedirectDraft{})
-
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/existing", Target: "/new-target", Status: commonTypes.RedirectStatusFound},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/existing", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
-
-		assert.NoError(t, err)
-		assert.Equal(t, 1, result.ErrorCount)
-		assert.Equal(t, ImportErrorDatabaseError, result.Errors[0].Reason)
-		assert.Contains(t, result.Errors[0].Message, "no such table: redirect_drafts")
-	})
-
-	t.Run("error updating unpublished draft", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
-		defer ctrl.Finish()
-
-		ctx := context.Background()
-
-		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			IsPublished:   types.Ptr(false),
-		}
-		db.Create(redirect)
-
-		draft := &model.RedirectDraft{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			OldRedirectID: &redirect.ID,
-			ChangeType:    model.DraftChangeTypeCreate,
-			NewRedirect: &commonTypes.Redirect{
-				Type:   commonTypes.RedirectTypeBasic,
-				Source: "/new-source",
-				Target: "/old-target",
-				Status: commonTypes.RedirectStatusMovedPermanent,
-			},
-		}
-		db.Create(draft)
-
-		db.Migrator().DropTable(&model.RedirectDraft{})
-
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/new-source", Target: "/updated-target", Status: commonTypes.RedirectStatusFound},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/new-source", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
-
-		assert.NoError(t, err)
-		assert.Equal(t, 1, result.ErrorCount)
-		assert.Equal(t, ImportErrorDatabaseError, result.Errors[0].Reason)
+		var updated model.RedirectDraft
+		db.First(&updated, draft.ID)
+		assert.Equal(t, "/updated-target", updated.NewRedirect.Target)
+		assert.Equal(t, commonTypes.RedirectStatusFound, updated.NewRedirect.Status)
+		assert.Equal(t, model.DraftChangeTypeCreate, updated.ChangeType, "change type must be preserved")
 	})
 
 	t.Run("skip when unpublished draft data is identical", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
-
-		redirect := &model.Redirect{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			IsPublished:   types.Ptr(false),
-		}
+		redirect := &model.Redirect{NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(false)}
 		db.Create(redirect)
-
-		draft := &model.RedirectDraft{
-			NamespaceCode: "ns",
-			ProjectCode:   "proj",
-			OldRedirectID: &redirect.ID,
-			ChangeType:    model.DraftChangeTypeCreate,
+		db.Create(&model.RedirectDraft{
+			NamespaceCode: "ns", ProjectCode: "proj",
+			OldRedirectID: &redirect.ID, ChangeType: model.DraftChangeTypeCreate,
 			NewRedirect: &commonTypes.Redirect{
-				Type:   commonTypes.RedirectTypeBasic,
-				Source: "/new-source",
-				Target: "/target",
-				Status: commonTypes.RedirectStatusMovedPermanent,
+				Type: commonTypes.RedirectTypeBasic, Source: "/new-source",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent,
 			},
-		}
-		db.Create(draft)
+		})
 
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/new-source", Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/new-source", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/new-source\t/target\t301",
+		), ImportRedirectOptions{Overwrite: true})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
@@ -924,27 +708,106 @@ func TestRedirectImportService_Import(t *testing.T) {
 		assert.Equal(t, 1, result.SkippedCount)
 	})
 
-	t.Run("fallthrough to createNewDraft when source unavailable but not found", func(t *testing.T) {
-		ctrl, mockRepo, db, svc := setupRedirectImportServiceTest(t)
+	t.Run("a DELETE draft does not block the source", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
 
-		ctx := context.Background()
+		redirect := &model.Redirect{NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(false)}
+		db.Create(redirect)
+		db.Create(&model.RedirectDraft{
+			NamespaceCode: "ns", ProjectCode: "proj",
+			OldRedirectID: &redirect.ID, ChangeType: model.DraftChangeTypeDelete,
+			NewRedirect: &commonTypes.Redirect{
+				Type: commonTypes.RedirectTypeBasic, Source: "/gone",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent,
+			},
+		})
 
-		rows := []ParsedRedirectRow{
-			{LineNum: 2, Type: commonTypes.RedirectTypeBasic, Source: "/ghost", Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent},
-		}
-
-		mockRepo.EXPECT().CheckSourceAvailability(ctx, "ns", "proj", "/ghost", nil, nil).Return(false, nil)
-
-		result, err := svc.Import(ctx, "ns", "proj", rows, ImportRedirectOptions{Overwrite: true})
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/gone\t/target\t301",
+		), ImportRedirectOptions{Overwrite: false})
 
 		assert.NoError(t, err)
 		assert.True(t, result.Success)
 		assert.Equal(t, 1, result.ImportedCount)
+	})
 
-		var redirects []model.Redirect
-		db.Find(&redirects)
-		assert.Len(t, redirects, 1)
+	t.Run("rows spanning several chunks are all imported", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		total := importChunkSize + 250
+		rows := make([]string, 0, total)
+		for i := 0; i < total; i++ {
+			rows = append(rows, fmt.Sprintf("BASIC\t/src-%d\t/target-%d\t301", i, i))
+		}
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(rows...), ImportRedirectOptions{})
+
+		assert.NoError(t, err)
+		assert.True(t, result.Success)
+		assert.Equal(t, total, result.TotalLines)
+		assert.Equal(t, total, result.ImportedCount)
+
+		var count int64
+		db.Model(&model.RedirectDraft{}).Count(&count)
+		assert.Equal(t, int64(total), count)
+
+		// each draft must still point at a distinct redirect
+		var linked int64
+		db.Model(&model.RedirectDraft{}).Distinct("old_redirect_id").Count(&linked)
+		assert.Equal(t, int64(total), linked)
+	})
+
+	t.Run("reported errors are capped but the count stays exact", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		total := maxReportedErrors + 42
+		rows := make([]string, 0, total)
+		for i := 0; i < total; i++ {
+			rows = append(rows, fmt.Sprintf("NOPE\t/src-%d\t/target-%d\t301", i, i))
+		}
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(rows...), ImportRedirectOptions{})
+
+		assert.NoError(t, err)
+		assert.False(t, result.Success)
+		assert.Equal(t, total, result.ErrorCount)
+		assert.Len(t, result.Errors, maxReportedErrors)
+	})
+
+	t.Run("database failure aborts the import", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		db.Migrator().DropTable(&model.RedirectDraft{})
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/new\t/target\t301",
+		), ImportRedirectOptions{})
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
+
+		// the transaction rolled back: no orphan redirect left behind
+		var count int64
+		db.Model(&model.Redirect{}).Count(&count)
+		assert.Equal(t, int64(0), count)
+	})
+
+	t.Run("database failure on redirect insert aborts the import", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		db.Migrator().DropTable(&model.Redirect{})
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/new\t/target\t301",
+		), ImportRedirectOptions{})
+
+		assert.Error(t, err)
+		assert.Nil(t, result)
 	})
 }
 
