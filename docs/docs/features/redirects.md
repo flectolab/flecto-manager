@@ -138,6 +138,16 @@ type    source    target    status
 
 - **Overwrite**: If enabled, existing redirects with the same source will be updated
 
+### Limits
+
+- Maximum file size: **200MB** (roughly 1.2 million rows)
+- The file is streamed and imported in batches, so a large import runs as a single
+  long request. Expect around **7,000 rows per second**; a 700,000 row file takes
+  close to two minutes.
+- The whole import runs in one transaction: if it fails, nothing is imported.
+- At most **1,000 errors** are returned in detail. The reported error count is always
+  the exact total, so a larger count than the listed errors means the list was truncated.
+
 ## Priority
 
 When multiple redirects could match a path, they are evaluated in order:

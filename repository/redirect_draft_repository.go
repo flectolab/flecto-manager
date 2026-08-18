@@ -61,10 +61,12 @@ func (r *redirectDraftRepository) FindByIDWithProject(ctx context.Context, names
 	return &draft, nil
 }
 
+// FindByProject returns every draft of a project. It deliberately does not preload
+// OldRedirect: callers only need OldRedirectID, which already lives on the draft row,
+// and preloading would emit a single IN clause holding one placeholder per draft.
 func (r *redirectDraftRepository) FindByProject(ctx context.Context, namespaceCode, projectCode string) ([]model.RedirectDraft, error) {
 	var drafts []model.RedirectDraft
 	err := r.db.WithContext(ctx).
-		Preload("OldRedirect").
 		Where("namespace_code = ? AND project_code = ?", namespaceCode, projectCode).
 		Find(&drafts).Error
 	if err != nil {

@@ -19,6 +19,10 @@ import (
 // ErrPublishInProgress is returned when a publish is already in progress for the project
 var ErrPublishInProgress = errors.New("publish already in progress for this project")
 
+// publishMaxBatchBytes bounds the content carried by a single page upsert statement,
+// keeping it clear of the server's max_allowed_packet (16MB by default).
+const publishMaxBatchBytes = 4 * 1024 * 1024
+
 type ProjectService interface {
 	GetTx(ctx context.Context) *gorm.DB
 	GetQuery(ctx context.Context) *gorm.DB
@@ -202,7 +206,9 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 
 	redirects := make([]*model.Redirect, 0)
 	redirectsToDelete := make([]int64, 0)
+	redirectDraftIDs := make([]int64, 0, len(redirectDrafts))
 	for _, draft := range redirectDrafts {
+		redirectDraftIDs = append(redirectDraftIDs, draft.ID)
 		switch draft.ChangeType {
 		case model.DraftChangeTypeCreate, model.DraftChangeTypeUpdate:
 			redirects = append(redirects, &model.Redirect{
@@ -226,7 +232,9 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 
 	pages := make([]*model.Page, 0)
 	pagesToDelete := make([]int64, 0)
+	pageDraftIDs := make([]int64, 0, len(pageDrafts))
 	for _, draft := range pageDrafts {
+		pageDraftIDs = append(pageDraftIDs, draft.ID)
 		switch draft.ChangeType {
 		case model.DraftChangeTypeCreate, model.DraftChangeTypeUpdate:
 			pages = append(pages, &model.Page{
@@ -271,47 +279,28 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 		}
 
 		// Delete redirect drafts
-		if len(redirectDrafts) > 0 {
-			err = tx.Delete(redirectDrafts).Error
-			if err != nil {
-				return err
-			}
+		if err = deleteByIDsInBatches(tx, &model.RedirectDraft{}, redirectDraftIDs, batchSize); err != nil {
+			return err
 		}
 
 		// Delete redirects marked for deletion
-		if len(redirectsToDelete) > 0 {
-			err = tx.Where("id in ?", redirectsToDelete).Delete(&model.Redirect{}).Error
-			if err != nil {
-				return err
-			}
+		if err = deleteByIDsInBatches(tx, &model.Redirect{}, redirectsToDelete, batchSize); err != nil {
+			return err
 		}
 
 		// Save pages
-		for i := 0; i < len(pages); i += batchSize {
-			end := i + batchSize
-			if end > len(pages) {
-				end = len(pages)
-			}
-
-			if err = tx.Save(pages[i:end]).Error; err != nil {
-				return err
-			}
+		if err = savePagesInBatches(tx, pages, batchSize, publishMaxBatchBytes); err != nil {
+			return err
 		}
 
 		// Delete page drafts
-		if len(pageDrafts) > 0 {
-			err = tx.Delete(pageDrafts).Error
-			if err != nil {
-				return err
-			}
+		if err = deleteByIDsInBatches(tx, &model.PageDraft{}, pageDraftIDs, batchSize); err != nil {
+			return err
 		}
 
 		// Delete pages marked for deletion
-		if len(pagesToDelete) > 0 {
-			err = tx.Where("id in ?", pagesToDelete).Delete(&model.Page{}).Error
-			if err != nil {
-				return err
-			}
+		if err = deleteByIDsInBatches(tx, &model.Page{}, pagesToDelete, batchSize); err != nil {
+			return err
 		}
 
 		project.Version++
@@ -333,6 +322,49 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 
 	s.ctx.Logger.Info("publish completed", "namespace", namespaceCode, "project", projectCode, "version", project.Version, "redirects", len(redirects), "pages", len(pages))
 	return project, nil
+}
+
+// deleteByIDsInBatches deletes rows by primary key in chunks. A single IN clause
+// holding one placeholder per row breaks past the database placeholder limit
+// (MySQL/MariaDB cap prepared statements at 65535), which a large publish reaches.
+func deleteByIDsInBatches(tx *gorm.DB, dest any, ids []int64, batchSize int) error {
+	for i := 0; i < len(ids); i += batchSize {
+		end := i + batchSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+		if err := tx.Where("id IN ?", ids[i:end]).Delete(dest).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// savePagesInBatches upserts pages, closing a batch as soon as its accumulated
+// content reaches maxBatchBytes. Pages carry their content inline, so a fixed row
+// count could build a statement larger than max_allowed_packet.
+func savePagesInBatches(tx *gorm.DB, pages []*model.Page, maxRows int, maxBatchBytes int64) error {
+	start, size := 0, int64(0)
+	flush := func(end int) error {
+		if end == start {
+			return nil
+		}
+		if err := tx.Save(pages[start:end]).Error; err != nil {
+			return err
+		}
+		start, size = end, 0
+		return nil
+	}
+
+	for i, page := range pages {
+		if i > start && (i-start >= maxRows || size+page.ContentSize > maxBatchBytes) {
+			if err := flush(i); err != nil {
+				return err
+			}
+		}
+		size += page.ContentSize
+	}
+	return flush(len(pages))
 }
 
 // isLockError checks if the error is a database lock error

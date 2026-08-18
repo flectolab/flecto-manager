@@ -61,10 +61,12 @@ func (r *pageDraftRepository) FindByIDWithProject(ctx context.Context, namespace
 	return &draft, nil
 }
 
+// FindByProject returns every draft of a project. It deliberately does not preload
+// OldPage: callers only need OldPageID, which already lives on the draft row, and
+// preloading would emit a single IN clause holding one placeholder per draft.
 func (r *pageDraftRepository) FindByProject(ctx context.Context, namespaceCode, projectCode string) ([]model.PageDraft, error) {
 	var drafts []model.PageDraft
 	err := r.db.WithContext(ctx).
-		Preload("OldPage").
 		Where("namespace_code = ? AND project_code = ?", namespaceCode, projectCode).
 		Find(&drafts).Error
 	if err != nil {

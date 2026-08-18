@@ -14,9 +14,24 @@ import (
 	"github.com/flectolab/flecto-manager/repository"
 	"github.com/flectolab/flecto-manager/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
-const MaxImportFileSize = 2 * 1024 * 1024
+const (
+	// MaxImportFileSize is the largest upload accepted by the redirect import.
+	MaxImportFileSize = 200 * 1024 * 1024
+
+	// importChunkSize is how many parsed rows are resolved against the database at once.
+	// The import streams the file chunk by chunk so memory stays flat regardless of file size.
+	importChunkSize = 5000
+
+	// importInsertBatchSize is the number of rows per multi-row INSERT.
+	importInsertBatchSize = 1000
+
+	// maxReportedErrors caps the errors carried back to the caller. ErrorCount stays exact,
+	// so a truncated list is detectable with errorCount > len(errors).
+	maxReportedErrors = 1000
+)
 
 // ImportErrorReason represents the reason why a redirect import failed
 type ImportErrorReason string
@@ -72,7 +87,7 @@ type RedirectImportService interface {
 	GetQuery(ctx context.Context) *gorm.DB
 	ValidateFile(filename string, contentType string, size int64) error
 	ParseFile(reader io.Reader) ([]ParsedRedirectRow, []ImportRedirectError, error)
-	Import(ctx context.Context, namespaceCode, projectCode string, rows []ParsedRedirectRow, opts ImportRedirectOptions) (*ImportRedirectResult, error)
+	Import(ctx context.Context, namespaceCode, projectCode string, reader io.Reader, opts ImportRedirectOptions) (*ImportRedirectResult, error)
 }
 
 type redirectImportService struct {
@@ -100,7 +115,8 @@ func (s *redirectImportService) GetQuery(ctx context.Context) *gorm.DB {
 func (s *redirectImportService) ValidateFile(filename string, contentType string, size int64) error {
 	// Validate file size
 	if size > MaxImportFileSize {
-		return fmt.Errorf("file too large: maximum size is 2MB, got %.2fMB", float64(size)/(1024*1024))
+		return fmt.Errorf("file too large: maximum size is %dMB, got %.2fMB",
+			MaxImportFileSize/(1024*1024), float64(size)/(1024*1024))
 	}
 
 	// Validate file extension
@@ -126,340 +142,405 @@ func (s *redirectImportService) ValidateFile(filename string, contentType string
 	return fmt.Errorf("invalid content type: %s", contentType)
 }
 
-// ParseFile parses the CSV/TSV file and returns validated rows and parse errors
-func (s *redirectImportService) ParseFile(reader io.Reader) ([]ParsedRedirectRow, []ImportRedirectError, error) {
+// rowParser streams a CSV/TSV import file one row at a time. It owns the
+// cross-file state (line counter and the sources already seen) so that callers
+// never need to hold the whole file in memory.
+type rowParser struct {
+	csv         *csv.Reader
+	seenSources map[string]int // source -> first line number
+	lineNum     int
+}
+
+// newRowParser validates the header and returns a parser positioned on the first data row.
+func newRowParser(reader io.Reader) (*rowParser, error) {
 	csvReader := csv.NewReader(reader)
 	csvReader.Comma = '\t'
 	csvReader.LazyQuotes = true
 	csvReader.FieldsPerRecord = -1 // Allow variable number of fields per row
 
-	// Read and validate header
 	header, err := csvReader.Read()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read header: %w", err)
+		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 
 	expectedColumns := []string{"type", "source", "target", "status"}
 	if len(header) != len(expectedColumns) {
-		return nil, nil, fmt.Errorf("invalid header: expected %d columns (type, source, target, status), got %d", len(expectedColumns), len(header))
+		return nil, fmt.Errorf("invalid header: expected %d columns (type, source, target, status), got %d", len(expectedColumns), len(header))
 	}
 	for i, col := range expectedColumns {
 		if strings.ToLower(strings.TrimSpace(header[i])) != col {
-			return nil, nil, fmt.Errorf("invalid header: column %d should be '%s', got '%s'", i+1, col, header[i])
+			return nil, fmt.Errorf("invalid header: column %d should be '%s', got '%s'", i+1, col, header[i])
 		}
+	}
+
+	return &rowParser{csv: csvReader, seenSources: make(map[string]int), lineNum: 1}, nil
+}
+
+// next returns the next data row. It reports io.EOF once the file is exhausted.
+// A non-nil ImportRedirectError means the line was rejected and parsing can continue.
+func (p *rowParser) next() (*ParsedRedirectRow, *ImportRedirectError, error) {
+	record, err := p.csv.Read()
+	if err == io.EOF {
+		return nil, nil, io.EOF
+	}
+	p.lineNum++
+
+	if err != nil {
+		return nil, &ImportRedirectError{
+			Line:    p.lineNum,
+			Reason:  ImportErrorInvalidFormat,
+			Message: fmt.Sprintf("failed to read line: %v", err),
+		}, nil
+	}
+
+	if len(record) != 4 {
+		return nil, &ImportRedirectError{
+			Line:    p.lineNum,
+			Reason:  ImportErrorInvalidFormat,
+			Message: fmt.Sprintf("expected 4 columns, got %d", len(record)),
+		}, nil
+	}
+
+	redirectType, errType := parseRedirectType(strings.TrimSpace(record[0]))
+	if errType != nil {
+		return nil, &ImportRedirectError{
+			Line:    p.lineNum,
+			Reason:  ImportErrorInvalidType,
+			Message: errType.Error(),
+		}, nil
+	}
+
+	source := strings.TrimSpace(record[1])
+	target := strings.TrimSpace(record[2])
+
+	if source == "" {
+		return nil, &ImportRedirectError{
+			Line:    p.lineNum,
+			Target:  target,
+			Reason:  ImportErrorEmptySource,
+			Message: "source cannot be empty",
+		}, nil
+	}
+	if target == "" {
+		return nil, &ImportRedirectError{
+			Line:    p.lineNum,
+			Source:  source,
+			Reason:  ImportErrorEmptyTarget,
+			Message: "target cannot be empty",
+		}, nil
+	}
+
+	redirectStatus, errStatus := parseRedirectStatus(strings.TrimSpace(record[3]))
+	if errStatus != nil {
+		return nil, &ImportRedirectError{
+			Line:    p.lineNum,
+			Source:  source,
+			Target:  target,
+			Reason:  ImportErrorInvalidStatus,
+			Message: errStatus.Error(),
+		}, nil
+	}
+
+	if firstLine, exists := p.seenSources[source]; exists {
+		return nil, &ImportRedirectError{
+			Line:    p.lineNum,
+			Source:  source,
+			Target:  target,
+			Reason:  ImportErrorDuplicateInFile,
+			Message: fmt.Sprintf("duplicate source in file, first occurrence at line %d", firstLine),
+		}, nil
+	}
+	p.seenSources[source] = p.lineNum
+
+	return &ParsedRedirectRow{
+		LineNum: p.lineNum,
+		Type:    redirectType,
+		Source:  source,
+		Target:  target,
+		Status:  redirectStatus,
+	}, nil, nil
+}
+
+// ParseFile parses the whole CSV/TSV file and returns validated rows and parse errors.
+// Import streams instead of using this; it is kept for callers that only want to
+// validate a file without touching the database.
+func (s *redirectImportService) ParseFile(reader io.Reader) ([]ParsedRedirectRow, []ImportRedirectError, error) {
+	parser, err := newRowParser(reader)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var rows []ParsedRedirectRow
 	var errors []ImportRedirectError
-	seenSources := make(map[string]int) // source -> first line number
-
-	lineNum := 1
 	for {
-		record, errRead := csvReader.Read()
-		if errRead == io.EOF {
+		row, rowErr, readErr := parser.next()
+		if readErr == io.EOF {
 			break
 		}
-		lineNum++
-
-		if errRead != nil {
-			errors = append(errors, ImportRedirectError{
-				Line:    lineNum,
-				Reason:  ImportErrorInvalidFormat,
-				Message: fmt.Sprintf("failed to read line: %v", errRead),
-			})
+		if rowErr != nil {
+			errors = append(errors, *rowErr)
 			continue
 		}
-
-		if len(record) != 4 {
-			errors = append(errors, ImportRedirectError{
-				Line:    lineNum,
-				Reason:  ImportErrorInvalidFormat,
-				Message: fmt.Sprintf("expected 4 columns, got %d", len(record)),
-			})
-			continue
-		}
-
-		// Parse type
-		redirectType, errType := parseRedirectType(strings.TrimSpace(record[0]))
-		if errType != nil {
-			errors = append(errors, ImportRedirectError{
-				Line:    lineNum,
-				Reason:  ImportErrorInvalidType,
-				Message: errType.Error(),
-			})
-			continue
-		}
-
-		source := strings.TrimSpace(record[1])
-		target := strings.TrimSpace(record[2])
-
-		if source == "" {
-			errors = append(errors, ImportRedirectError{
-				Line:    lineNum,
-				Target:  target,
-				Reason:  ImportErrorEmptySource,
-				Message: "source cannot be empty",
-			})
-			continue
-		}
-		if target == "" {
-			errors = append(errors, ImportRedirectError{
-				Line:    lineNum,
-				Source:  source,
-				Reason:  ImportErrorEmptyTarget,
-				Message: "target cannot be empty",
-			})
-			continue
-		}
-
-		// Parse status
-		redirectStatus, errStatus := parseRedirectStatus(strings.TrimSpace(record[3]))
-		if errStatus != nil {
-			errors = append(errors, ImportRedirectError{
-				Line:    lineNum,
-				Source:  source,
-				Target:  target,
-				Reason:  ImportErrorInvalidStatus,
-				Message: errStatus.Error(),
-			})
-			continue
-		}
-
-		// Check for duplicate sources within the file
-		if firstLine, exists := seenSources[source]; exists {
-			errors = append(errors, ImportRedirectError{
-				Line:    lineNum,
-				Source:  source,
-				Target:  target,
-				Reason:  ImportErrorDuplicateInFile,
-				Message: fmt.Sprintf("duplicate source in file, first occurrence at line %d", firstLine),
-			})
-			continue
-		}
-		seenSources[source] = lineNum
-
-		rows = append(rows, ParsedRedirectRow{
-			LineNum: lineNum,
-			Type:    redirectType,
-			Source:  source,
-			Target:  target,
-			Status:  redirectStatus,
-		})
+		rows = append(rows, *row)
 	}
 
 	return rows, errors, nil
 }
 
-// Import imports the parsed rows into the database
-func (s *redirectImportService) Import(ctx context.Context, namespaceCode, projectCode string, rows []ParsedRedirectRow, opts ImportRedirectOptions) (*ImportRedirectResult, error) {
-	s.ctx.Logger.Info("redirect import started", "namespace", namespaceCode, "project", projectCode, "rows", len(rows), "overwrite", opts.Overwrite)
+// Import streams the file and imports it as redirect drafts. Rows are resolved and
+// written in chunks, so both memory and the number of database round-trips stay
+// proportional to the chunk size rather than to the file size.
+func (s *redirectImportService) Import(ctx context.Context, namespaceCode, projectCode string, reader io.Reader, opts ImportRedirectOptions) (*ImportRedirectResult, error) {
+	s.ctx.Logger.Info("redirect import started", "namespace", namespaceCode, "project", projectCode, "overwrite", opts.Overwrite)
+
+	parser, err := newRowParser(reader)
+	if err != nil {
+		return nil, err
+	}
 
 	result := &ImportRedirectResult{
-		Success:    true,
-		TotalLines: len(rows),
-		Errors:     make([]ImportRedirectError, 0),
+		Success: true,
+		Errors:  make([]ImportRedirectError, 0),
 	}
 
-	if len(rows) == 0 {
-		s.ctx.Logger.Info("redirect import completed: no rows to import", "namespace", namespaceCode, "project", projectCode)
-		return result, nil
-	}
+	err = s.redirectDraftRepo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
+		chunk := make([]ParsedRedirectRow, 0, importChunkSize)
 
-	// Collect all sources for batch availability check
-	sources := make([]string, len(rows))
-	for i, row := range rows {
-		sources[i] = row.Source
-	}
+		for {
+			row, rowErr, readErr := parser.next()
+			if readErr == io.EOF {
+				break
+			}
+			result.TotalLines++
 
-	// Check source availability for all sources
-	unavailableSources, err := s.checkSourcesAvailability(ctx, namespaceCode, projectCode, sources)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check source availability: %w", err)
-	}
-
-	// Filter rows based on availability and overwrite option
-	var rowsToImport []ParsedRedirectRow
-	for _, row := range rows {
-		if _, unavailable := unavailableSources[row.Source]; unavailable {
-			if !opts.Overwrite {
-				result.Errors = append(result.Errors, ImportRedirectError{
-					Line:    row.LineNum,
-					Source:  row.Source,
-					Target:  row.Target,
-					Reason:  ImportErrorSourceAlreadyExists,
-					Message: "source already exists and overwrite is disabled",
-				})
-				result.ErrorCount++
+			if rowErr != nil {
+				addImportError(result, *rowErr)
 				continue
 			}
-			// If overwrite is enabled, we'll handle it during import
-		}
-		rowsToImport = append(rowsToImport, row)
-	}
 
-	if len(rowsToImport) == 0 {
-		result.Success = result.ErrorCount == 0
-		return result, nil
-	}
-
-	// Execute import in a single transaction
-	err = s.redirectDraftRepo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
-		for _, row := range rowsToImport {
-			imported, importErr := s.importRow(ctx, tx, namespaceCode, projectCode, row, unavailableSources)
-			if importErr != nil {
-				result.Errors = append(result.Errors, *importErr)
-				result.ErrorCount++
-			} else if imported {
-				result.ImportedCount++
-			} else {
-				result.SkippedCount++
+			chunk = append(chunk, *row)
+			if len(chunk) < importChunkSize {
+				continue
 			}
+			if err := s.importChunk(ctx, tx, namespaceCode, projectCode, chunk, opts, result); err != nil {
+				return err
+			}
+			chunk = chunk[:0]
+		}
+
+		if len(chunk) > 0 {
+			return s.importChunk(ctx, tx, namespaceCode, projectCode, chunk, opts, result)
 		}
 		return nil
 	})
-
 	if err != nil {
 		s.ctx.Logger.Error("redirect import failed", "namespace", namespaceCode, "project", projectCode, "error", err)
 		return nil, err
 	}
 
 	result.Success = result.ErrorCount == 0
-	s.ctx.Logger.Info("redirect import completed", "namespace", namespaceCode, "project", projectCode, "imported", result.ImportedCount, "skipped", result.SkippedCount, "errors", result.ErrorCount)
+	s.ctx.Logger.Info("redirect import completed", "namespace", namespaceCode, "project", projectCode,
+		"lines", result.TotalLines, "imported", result.ImportedCount, "skipped", result.SkippedCount, "errors", result.ErrorCount)
 	return result, nil
 }
 
-// checkSourcesAvailability checks which sources already exist
-func (s *redirectImportService) checkSourcesAvailability(ctx context.Context, namespaceCode, projectCode string, sources []string) (map[string]bool, error) {
-	unavailable := make(map[string]bool)
-
-	for _, source := range sources {
-		available, err := s.redirectDraftRepo.CheckSourceAvailability(ctx, namespaceCode, projectCode, source, nil, nil)
-		if err != nil {
-			return nil, err
+// importChunk resolves a batch of rows against the database and writes them.
+// It issues a fixed number of queries per chunk instead of one per row.
+func (s *redirectImportService) importChunk(
+	ctx context.Context,
+	tx *gorm.DB,
+	namespaceCode, projectCode string,
+	rows []ParsedRedirectRow,
+	opts ImportRedirectOptions,
+	result *ImportRedirectResult,
+) error {
+	// Validate each row before hitting the database
+	valid := make([]ParsedRedirectRow, 0, len(rows))
+	sources := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if err := s.ctx.Validator.Struct(rowToRedirect(row)); err != nil {
+			addImportError(result, ImportRedirectError{
+				Line:    row.LineNum,
+				Source:  row.Source,
+				Target:  row.Target,
+				Reason:  ImportErrorInvalidRedirect,
+				Message: fmt.Sprintf("invalid data: %v", err),
+			})
+			continue
 		}
-		if !available {
-			unavailable[source] = true
+		valid = append(valid, row)
+		sources = append(sources, row.Source)
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+
+	// Resolve what already exists for these sources: two queries for the whole chunk
+	redirectBySource, draftBySource, err := s.lookupExisting(ctx, tx, namespaceCode, projectCode, sources)
+	if err != nil {
+		return err
+	}
+
+	var (
+		newRedirects []model.Redirect      // brand new redirects, drafts created once their IDs are known
+		newRows      []ParsedRedirectRow   // parallel to newRedirects
+		newDrafts    []model.RedirectDraft // drafts attached to an already published redirect
+		draftUpdates []model.RedirectDraft // existing drafts whose content changes
+	)
+
+	for _, row := range valid {
+		newRedirect := rowToRedirect(row)
+		existing, hasRedirect := redirectBySource[row.Source]
+		draft, hasDraft := draftBySource[row.Source]
+
+		if (hasRedirect || hasDraft) && !opts.Overwrite {
+			addImportError(result, ImportRedirectError{
+				Line:    row.LineNum,
+				Source:  row.Source,
+				Target:  row.Target,
+				Reason:  ImportErrorSourceAlreadyExists,
+				Message: "source already exists and overwrite is disabled",
+			})
+			continue
+		}
+
+		switch {
+		case hasRedirect && existing.RedirectDraft != nil:
+			if redirectsAreEqual(existing.RedirectDraft.NewRedirect, newRedirect) {
+				result.SkippedCount++
+				continue
+			}
+			updated := *existing.RedirectDraft
+			updated.NewRedirect = newRedirect
+			draftUpdates = append(draftUpdates, updated)
+
+		case hasRedirect:
+			if redirectsAreEqual(existing.Redirect, newRedirect) {
+				result.SkippedCount++
+				continue
+			}
+			newDrafts = append(newDrafts, model.RedirectDraft{
+				NamespaceCode: namespaceCode,
+				ProjectCode:   projectCode,
+				OldRedirectID: types.Ptr(existing.ID),
+				ChangeType:    model.DraftChangeTypeUpdate,
+				NewRedirect:   newRedirect,
+			})
+
+		case hasDraft:
+			if redirectsAreEqual(draft.NewRedirect, newRedirect) {
+				result.SkippedCount++
+				continue
+			}
+			updated := *draft
+			updated.NewRedirect = newRedirect
+			draftUpdates = append(draftUpdates, updated)
+
+		default:
+			newRedirects = append(newRedirects, model.Redirect{
+				NamespaceCode: namespaceCode,
+				ProjectCode:   projectCode,
+				IsPublished:   types.Ptr(false),
+			})
+			newRows = append(newRows, row)
 		}
 	}
 
-	return unavailable, nil
+	imported := len(newRedirects) + len(newDrafts) + len(draftUpdates)
+
+	// Create the new redirects first, then the drafts pointing at their generated IDs
+	if len(newRedirects) > 0 {
+		if err := tx.CreateInBatches(&newRedirects, importInsertBatchSize).Error; err != nil {
+			return fmt.Errorf("failed to create redirects: %w", err)
+		}
+		for i, row := range newRows {
+			newDrafts = append(newDrafts, model.RedirectDraft{
+				NamespaceCode: namespaceCode,
+				ProjectCode:   projectCode,
+				OldRedirectID: types.Ptr(newRedirects[i].ID),
+				ChangeType:    model.DraftChangeTypeCreate,
+				NewRedirect:   rowToRedirect(row),
+			})
+		}
+	}
+
+	if len(newDrafts) > 0 {
+		if err := tx.CreateInBatches(&newDrafts, importInsertBatchSize).Error; err != nil {
+			return fmt.Errorf("failed to create redirect drafts: %w", err)
+		}
+	}
+
+	// Existing drafts are updated with a batched upsert on their primary key
+	if len(draftUpdates) > 0 {
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "id"}},
+			DoUpdates: clause.AssignmentColumns([]string{"new_type", "new_source", "new_target", "new_status", "updated_at"}),
+		}).CreateInBatches(&draftUpdates, importInsertBatchSize).Error; err != nil {
+			return fmt.Errorf("failed to update redirect drafts: %w", err)
+		}
+	}
+
+	result.ImportedCount += imported
+	return nil
 }
 
-// importRow imports a single row, returns (imported, error)
-func (s *redirectImportService) importRow(ctx context.Context, tx *gorm.DB, namespaceCode, projectCode string, row ParsedRedirectRow, unavailableSources map[string]bool) (bool, *ImportRedirectError) {
-	newRedirect := &commonTypes.Redirect{
+// lookupExisting fetches, in two queries, the published redirects and the standalone
+// drafts that already use any of the given sources.
+func (s *redirectImportService) lookupExisting(
+	ctx context.Context,
+	tx *gorm.DB,
+	namespaceCode, projectCode string,
+	sources []string,
+) (map[string]*model.Redirect, map[string]*model.RedirectDraft, error) {
+	var redirects []model.Redirect
+	if err := tx.WithContext(ctx).
+		Preload("RedirectDraft").
+		Where("namespace_code = ? AND project_code = ? AND source IN ?", namespaceCode, projectCode, sources).
+		Find(&redirects).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to load existing redirects: %w", err)
+	}
+	redirectBySource := make(map[string]*model.Redirect, len(redirects))
+	for i := range redirects {
+		if redirects[i].Redirect == nil {
+			continue
+		}
+		redirectBySource[redirects[i].Source] = &redirects[i]
+	}
+
+	var drafts []model.RedirectDraft
+	if err := tx.WithContext(ctx).
+		Where("namespace_code = ? AND project_code = ? AND new_source IN ? AND change_type != ?",
+			namespaceCode, projectCode, sources, model.DraftChangeTypeDelete).
+		Find(&drafts).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to load existing redirect drafts: %w", err)
+	}
+	draftBySource := make(map[string]*model.RedirectDraft, len(drafts))
+	for i := range drafts {
+		if drafts[i].NewRedirect == nil {
+			continue
+		}
+		draftBySource[drafts[i].NewRedirect.Source] = &drafts[i]
+	}
+
+	return redirectBySource, draftBySource, nil
+}
+
+func rowToRedirect(row ParsedRedirectRow) *commonTypes.Redirect {
+	return &commonTypes.Redirect{
 		Type:   row.Type,
 		Source: row.Source,
 		Target: row.Target,
 		Status: row.Status,
 	}
-	errValidate := s.ctx.Validator.Struct(newRedirect)
-	if errValidate != nil {
-		return false, &ImportRedirectError{
-			Line:    row.LineNum,
-			Source:  row.Source,
-			Target:  row.Target,
-			Reason:  ImportErrorInvalidRedirect,
-			Message: fmt.Sprintf("invalid data: %v", errValidate),
-		}
-	}
-
-	// Check if source already exists (only reached when overwrite is enabled)
-	if _, exists := unavailableSources[row.Source]; exists {
-		return s.updateExistingDraft(ctx, tx, namespaceCode, projectCode, row, newRedirect)
-	}
-
-	// Create new redirect and draft
-	return s.createNewDraft(tx, namespaceCode, projectCode, row, newRedirect)
 }
 
-// updateExistingDraft updates an existing draft for a source
-func (s *redirectImportService) updateExistingDraft(ctx context.Context, tx *gorm.DB, namespaceCode, projectCode string, row ParsedRedirectRow, newRedirect *commonTypes.Redirect) (bool, *ImportRedirectError) {
-	// Find existing redirect with this source
-	var existingRedirect model.Redirect
-	err := tx.WithContext(ctx).
-		Preload("RedirectDraft").
-		Where("namespace_code = ? AND project_code = ? AND source = ?", namespaceCode, projectCode, row.Source).
-		First(&existingRedirect).Error
-
-	if err == nil && existingRedirect.ID > 0 {
-		// Update or create draft for existing published redirect
-		if existingRedirect.RedirectDraft != nil {
-			// Check if data is identical - skip if no changes
-			if redirectsAreEqual(existingRedirect.RedirectDraft.NewRedirect, newRedirect) {
-				return false, nil // Skip, no changes
-			}
-			existingRedirect.RedirectDraft.NewRedirect = newRedirect
-			if err = tx.Save(existingRedirect.RedirectDraft).Error; err != nil {
-				return false, &ImportRedirectError{
-					Line:    row.LineNum,
-					Source:  row.Source,
-					Target:  row.Target,
-					Reason:  ImportErrorDatabaseError,
-					Message: fmt.Sprintf("failed to update existing draft: %v", err),
-				}
-			}
-			return true, nil
-		}
-
-		// Check if the published redirect already has the same data
-		publishedRedirect := &commonTypes.Redirect{
-			Type:   existingRedirect.Type,
-			Source: existingRedirect.Source,
-			Target: existingRedirect.Target,
-			Status: existingRedirect.Status,
-		}
-		if redirectsAreEqual(publishedRedirect, newRedirect) {
-			return false, nil // Skip, no changes from published version
-		}
-
-		// Create new draft for published redirect
-		draft := &model.RedirectDraft{
-			NamespaceCode: namespaceCode,
-			ProjectCode:   projectCode,
-			OldRedirectID: types.Ptr(existingRedirect.ID),
-			ChangeType:    model.DraftChangeTypeUpdate,
-			NewRedirect:   newRedirect,
-		}
-		if err = tx.Create(draft).Error; err != nil {
-			return false, &ImportRedirectError{
-				Line:    row.LineNum,
-				Source:  row.Source,
-				Target:  row.Target,
-				Reason:  ImportErrorDatabaseError,
-				Message: fmt.Sprintf("failed to create draft for existing redirect: %v", err),
-			}
-		}
-		return true, nil
+// addImportError records an error, keeping the reported list bounded while
+// ErrorCount keeps counting every occurrence.
+func addImportError(result *ImportRedirectResult, e ImportRedirectError) {
+	result.ErrorCount++
+	if len(result.Errors) < maxReportedErrors {
+		result.Errors = append(result.Errors, e)
 	}
-
-	// Check in redirect_drafts for unpublished redirects with matching new_source
-	var existingDraft model.RedirectDraft
-	err = tx.WithContext(ctx).
-		Where("namespace_code = ? AND project_code = ? AND new_source = ? AND change_type != ?",
-			namespaceCode, projectCode, row.Source, model.DraftChangeTypeDelete).
-		First(&existingDraft).Error
-
-	if err == nil && existingDraft.ID > 0 {
-		// Check if data is identical - skip if no changes
-		if redirectsAreEqual(existingDraft.NewRedirect, newRedirect) {
-			return false, nil // Skip, no changes
-		}
-		existingDraft.NewRedirect = newRedirect
-		if err = tx.Save(&existingDraft).Error; err != nil {
-			return false, &ImportRedirectError{
-				Line:    row.LineNum,
-				Source:  row.Source,
-				Target:  row.Target,
-				Reason:  ImportErrorDatabaseError,
-				Message: fmt.Sprintf("failed to update existing draft: %v", err),
-			}
-		}
-		return true, nil
-	}
-
-	// If we get here, the source exists but we couldn't find it (shouldn't happen)
-	return s.createNewDraft(tx, namespaceCode, projectCode, row, newRedirect)
 }
 
 // redirectsAreEqual compares two redirects to check if they have identical data
@@ -471,45 +552,6 @@ func redirectsAreEqual(a, b *commonTypes.Redirect) bool {
 		a.Source == b.Source &&
 		a.Target == b.Target &&
 		a.Status == b.Status
-}
-
-// createNewDraft creates a new redirect and draft
-func (s *redirectImportService) createNewDraft(tx *gorm.DB, namespaceCode, projectCode string, row ParsedRedirectRow, newRedirect *commonTypes.Redirect) (bool, *ImportRedirectError) {
-	// Create new unpublished redirect
-	redirect := &model.Redirect{
-		NamespaceCode: namespaceCode,
-		ProjectCode:   projectCode,
-		IsPublished:   types.Ptr(false),
-	}
-	if err := tx.Create(redirect).Error; err != nil {
-		return false, &ImportRedirectError{
-			Line:    row.LineNum,
-			Source:  row.Source,
-			Target:  row.Target,
-			Reason:  ImportErrorDatabaseError,
-			Message: fmt.Sprintf("failed to create redirect: %v", err),
-		}
-	}
-
-	// Create redirect draft
-	draft := &model.RedirectDraft{
-		NamespaceCode: namespaceCode,
-		ProjectCode:   projectCode,
-		OldRedirectID: types.Ptr(redirect.ID),
-		ChangeType:    model.DraftChangeTypeCreate,
-		NewRedirect:   newRedirect,
-	}
-	if err := tx.Create(draft).Error; err != nil {
-		return false, &ImportRedirectError{
-			Line:    row.LineNum,
-			Source:  row.Source,
-			Target:  row.Target,
-			Reason:  ImportErrorDatabaseError,
-			Message: fmt.Sprintf("failed to create redirect draft: %v", err),
-		}
-	}
-
-	return true, nil
 }
 
 // Helper functions moved from resolver

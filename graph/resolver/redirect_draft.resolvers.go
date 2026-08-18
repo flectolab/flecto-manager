@@ -69,12 +69,6 @@ func (r *mutationResolver) ImportRedirectDraft(ctx context.Context, namespaceCod
 		return nil, err
 	}
 
-	// Parse file
-	parsedRows, parseErrors, err := r.RedirectImportService.ParseFile(file.File)
-	if err != nil {
-		return nil, err
-	}
-
 	// Build import options
 	opts := service.ImportRedirectOptions{
 		Overwrite: true, // Default to true
@@ -83,27 +77,15 @@ func (r *mutationResolver) ImportRedirectDraft(ctx context.Context, namespaceCod
 		opts.Overwrite = input.Overwrite
 	}
 
-	// Import rows
-	importResult, err := r.RedirectImportService.Import(ctx, namespaceCode, projectCode, parsedRows, opts)
+	// Import: the service streams the file, parse errors are reported alongside import errors
+	importResult, err := r.RedirectImportService.Import(ctx, namespaceCode, projectCode, file.File, opts)
 	if err != nil {
 		return nil, err
 	}
 
-	// Convert service errors to GraphQL errors
-	graphErrors := make([]graph.ImportRedirectError, 0, len(parseErrors)+len(importResult.Errors))
-
-	// Add parse errors
-	for _, e := range parseErrors {
-		graphErrors = append(graphErrors, graph.ImportRedirectError{
-			Line:    e.Line,
-			Source:  strPtrOrNil(e.Source),
-			Target:  strPtrOrNil(e.Target),
-			Reason:  convertErrorReason(e.Reason),
-			Message: e.Message,
-		})
-	}
-
-	// Add import errors
+	// Convert service errors to GraphQL errors. The list is capped by the service,
+	// ErrorCount stays exact so the caller can detect truncation.
+	graphErrors := make([]graph.ImportRedirectError, 0, len(importResult.Errors))
 	for _, e := range importResult.Errors {
 		graphErrors = append(graphErrors, graph.ImportRedirectError{
 			Line:    e.Line,
@@ -114,14 +96,12 @@ func (r *mutationResolver) ImportRedirectDraft(ctx context.Context, namespaceCod
 		})
 	}
 
-	totalLines := len(parsedRows) + len(parseErrors)
-
 	return &graph.ImportRedirectResult{
-		Success:       importResult.Success && len(parseErrors) == 0,
-		TotalLines:    totalLines,
+		Success:       importResult.Success,
+		TotalLines:    importResult.TotalLines,
 		ImportedCount: importResult.ImportedCount,
 		SkippedCount:  importResult.SkippedCount,
-		ErrorCount:    len(parseErrors) + importResult.ErrorCount,
+		ErrorCount:    importResult.ErrorCount,
 		Errors:        graphErrors,
 	}, nil
 }
