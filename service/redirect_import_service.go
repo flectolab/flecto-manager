@@ -70,6 +70,8 @@ type ImportRedirectResult struct {
 // ImportRedirectOptions contains options for the import operation
 type ImportRedirectOptions struct {
 	Overwrite bool
+	// Filename is only used to describe the import in the activity trail.
+	Filename string
 }
 
 // ParsedRedirectRow represents a parsed row from the import file
@@ -93,13 +95,15 @@ type RedirectImportService interface {
 type redirectImportService struct {
 	ctx               *appContext.Context
 	redirectDraftRepo repository.RedirectDraftRepository
+	activity          ActivityService
 }
 
 // NewRedirectImportService creates a new RedirectImportService
-func NewRedirectImportService(ctx *appContext.Context, redirectDraftRepo repository.RedirectDraftRepository) RedirectImportService {
+func NewRedirectImportService(ctx *appContext.Context, redirectDraftRepo repository.RedirectDraftRepository, activity ActivityService) RedirectImportService {
 	return &redirectImportService{
 		ctx:               ctx,
 		redirectDraftRepo: redirectDraftRepo,
+		activity:          activity,
 	}
 }
 
@@ -329,9 +333,20 @@ func (s *redirectImportService) Import(ctx context.Context, namespaceCode, proje
 		}
 
 		if len(chunk) > 0 {
-			return s.importChunk(ctx, tx, namespaceCode, projectCode, chunk, opts, result)
+			if err := s.importChunk(ctx, tx, namespaceCode, projectCode, chunk, opts, result); err != nil {
+				return err
+			}
 		}
-		return nil
+
+		// One aggregated event, whatever the size of the file: a 200k line import
+		// must not write 200k rows in the journal.
+		return s.activity.Record(ctx, tx, model.ActivityInput{
+			NamespaceCode: namespaceCode,
+			ProjectCode:   projectCode,
+			Resource:      model.ActivityResourceRedirect,
+			Action:        model.ActivityActionImport,
+			Data:          activityImportPayload(opts, result),
+		})
 	})
 	if err != nil {
 		s.ctx.Logger.Error("redirect import failed", "namespace", namespaceCode, "project", projectCode, "error", err)
@@ -342,6 +357,32 @@ func (s *redirectImportService) Import(ctx context.Context, namespaceCode, proje
 	s.ctx.Logger.Info("redirect import completed", "namespace", namespaceCode, "project", projectCode,
 		"lines", result.TotalLines, "imported", result.ImportedCount, "skipped", result.SkippedCount, "errors", result.ErrorCount)
 	return result, nil
+}
+
+// activityImportPayload summarises an import for the journal. The error sample is
+// capped far below the reported list: this row is kept for months, ErrorCount
+// stays exact so a truncated sample remains detectable.
+func activityImportPayload(opts ImportRedirectOptions, result *ImportRedirectResult) model.ActivityImport {
+	sampleSize := min(len(result.Errors), model.ActivityImportErrorSampleMax)
+
+	sample := make([]model.ActivityImportError, 0, sampleSize)
+	for _, e := range result.Errors[:sampleSize] {
+		sample = append(sample, model.ActivityImportError{
+			Line:   e.Line,
+			Source: e.Source,
+			Reason: string(e.Reason),
+		})
+	}
+
+	return model.ActivityImport{
+		Filename:    opts.Filename,
+		Overwrite:   opts.Overwrite,
+		TotalLines:  result.TotalLines,
+		Imported:    result.ImportedCount,
+		Skipped:     result.SkippedCount,
+		ErrorCount:  result.ErrorCount,
+		ErrorSample: sample,
+	}
 }
 
 // importChunk resolves a batch of rows against the database and writes them.

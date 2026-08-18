@@ -46,6 +46,11 @@ page:
 agent:
   offline_threshold: 6h      # Mark agent offline after this duration
 
+# Activity journal (optional)
+activity:
+  max_events_per_project: 1000  # Max entries kept per project (0 = unlimited)
+  purge_interval: 1h            # How often old entries are trimmed (0 = disabled)
+
 # Prometheus metrics (optional)
 metrics:
   enabled: false             # Enable Prometheus metrics
@@ -190,30 +195,28 @@ metrics:
 
 ### Available Metrics
 
-| Metric | Type | Labels | Description |
-|--------|------|--------|-------------|
-| `flecto_agent_errors_total` | Gauge | `namespace`, `project` | Number of agents in error status (excluding offline agents) |
-| `flecto_agent_online_total` | Gauge | `namespace`, `project` | Number of online agents |
-| `flecto_http_requests_total` | Counter | `method`, `path`, `status` | Total number of HTTP requests |
-| `flecto_http_request_duration_seconds` | Histogram | `method`, `path` | HTTP request duration in seconds |
+See [Monitoring](./monitoring.md) for the full list of metrics, scrape configuration
+and alerting examples.
 
-### Prometheus Configuration
+## Activity Journal
 
-Add Flecto Manager as a scrape target:
+The [activity journal](./features/activity.md) records who changed what in each
+project. It is bounded by a maximum number of entries per project, trimmed by a
+background task.
 
 ```yaml
-scrape_configs:
-  - job_name: 'flecto-manager'
-    static_configs:
-      - targets: ['localhost:8080']  # or localhost:9090 if using separate server
+activity:
+  max_events_per_project: 1000  # Max entries kept per project (0 = unlimited)
+  purge_interval: 1h            # How often old entries are trimmed (0 = disabled)
 ```
 
-### Grafana Dashboard
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `max_events_per_project` | `1000` | The only guard on the table size. `0` disables trimming, which means accepting an unbounded table. |
+| `purge_interval` | `1h` | How often the purge task runs. `0` disables the task entirely. |
 
-You can create dashboards to visualize:
-- Agent status across namespaces and projects
-- HTTP request rates and latencies
-- Error rates by endpoint
+Lowering `max_events_per_project` takes effect on the next purge. To apply it right
+away, run `flecto-manager db activity-purge`.
 
 ## Security Recommendations
 

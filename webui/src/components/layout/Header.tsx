@@ -11,7 +11,10 @@ interface HeaderProps {
 const pageTitles: Record<string, string> = {
   '': 'Dashboard',
   'redirects': 'Redirects',
+  'redirect-tester': 'Redirect Tester',
   'pages': 'Pages',
+  'agents': 'Agent Status',
+  'activity': 'Activity',
 }
 
 export function Header({ sidebarCollapsed }: HeaderProps) {

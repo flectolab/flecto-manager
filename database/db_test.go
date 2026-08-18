@@ -29,6 +29,7 @@ func TestModels(t *testing.T) {
 			model.UserRole{},
 			model.Agent{},
 			model.Token{},
+			model.ActivityEvent{},
 		}
 
 		assert.Equal(t, len(expectedModels), len(Models))
@@ -37,8 +38,8 @@ func TestModels(t *testing.T) {
 		}
 	})
 
-	t.Run("models count is 13", func(t *testing.T) {
-		assert.Len(t, Models, 13)
+	t.Run("models count is 14", func(t *testing.T) {
+		assert.Len(t, Models, 14)
 	})
 }
 

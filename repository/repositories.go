@@ -13,6 +13,7 @@ type Repositories struct {
 	PageDraft     PageDraftRepository
 	Agent         AgentRepository
 	Token         TokenRepository
+	ActivityEvent ActivityEventRepository
 }
 
 func NewRepositories(db *gorm.DB) *Repositories {
@@ -27,5 +28,6 @@ func NewRepositories(db *gorm.DB) *Repositories {
 		PageDraft:     NewPageDraftRepository(db),
 		Agent:         NewAgentRepository(db),
 		Token:         NewTokenRepository(db),
+		ActivityEvent: NewActivityEventRepository(db),
 	}
 }

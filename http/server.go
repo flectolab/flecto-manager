@@ -34,7 +34,10 @@ import (
 	"github.com/vektah/gqlparser/v2/ast"
 )
 
-func CreateServerHTTP(ctx *context.Context) (*echo.Echo, error) {
+// CreateServerHTTP builds the HTTP server and returns the services it wired, so
+// that background work outside HTTP - the scheduler - shares the same instances
+// rather than building a second set.
+func CreateServerHTTP(ctx *context.Context) (*echo.Echo, *service.Services, error) {
 	e := createServerHTTP()
 	e.Logger.SetOutput(os.Stdout)
 
@@ -42,7 +45,7 @@ func CreateServerHTTP(ctx *context.Context) (*echo.Echo, error) {
 
 	db, err := database.CreateDB(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	jwtService := jwt.NewServiceJWT(&ctx.Config.Auth.JWT)
@@ -54,7 +57,7 @@ func CreateServerHTTP(ctx *context.Context) (*echo.Echo, error) {
 
 	e.GET("/health/ping", health.GetPing())
 	if err = setupAuthRoutes(ctx, e, services, jwtService, authMiddleware); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	setupGraphQLRoutes(ctx, e, services, permissionChecker, authMiddleware)
 	setupAPIRoutes(e, services, permissionChecker, authMiddleware)
@@ -66,7 +69,7 @@ func CreateServerHTTP(ctx *context.Context) (*echo.Echo, error) {
 
 	registerUI(ctx, e)
 
-	return e, nil
+	return e, services, nil
 }
 
 func createServerHTTP() *echo.Echo {
@@ -131,6 +134,7 @@ func createGraphQLHandler(ctx *context.Context, services *service.Services, perm
 			PageDraftService:        services.PageDraft,
 			AgentService:            services.Agent,
 			ProjectDashboardService: services.ProjectDashboard,
+			ActivityService:         services.Activity,
 			AgentConfig:             ctx.Config.Agent,
 		},
 		Directives: graph.DirectiveRoot{Public: graph.PublicDirective},

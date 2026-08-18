@@ -14,6 +14,7 @@ func GetDBCmd(ctx *context.Context) *cobra.Command {
 	cmd.AddCommand(db.GetInitCmd(ctx))
 	cmd.AddCommand(db.GetDemoCmd(ctx))
 	cmd.AddCommand(db.GetMigrateCmd(ctx))
+	cmd.AddCommand(db.GetActivityPurgeCmd(ctx))
 
 	return cmd
 }

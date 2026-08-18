@@ -7,12 +7,13 @@ import (
 const DefaultRequestTimeout = 2 * time.Second
 
 type Config struct {
-	HTTP    HTTPConfig    `mapstructure:"http" validate:"required"`
-	DB      DbConfig      `mapstructure:"db" validate:"required"`
-	Auth    AuthConfig    `mapstructure:"auth" validate:"required"`
-	Page    PageConfig    `mapstructure:"page" validate:"required"`
-	Agent   AgentConfig   `mapstructure:"agent" validate:"required"`
-	Metrics MetricsConfig `mapstructure:"metrics"`
+	HTTP     HTTPConfig     `mapstructure:"http" validate:"required"`
+	DB       DbConfig       `mapstructure:"db" validate:"required"`
+	Auth     AuthConfig     `mapstructure:"auth" validate:"required"`
+	Page     PageConfig     `mapstructure:"page" validate:"required"`
+	Agent    AgentConfig    `mapstructure:"agent" validate:"required"`
+	Metrics  MetricsConfig  `mapstructure:"metrics"`
+	Activity ActivityConfig `mapstructure:"activity"`
 }
 
 type MetricsConfig struct {
@@ -69,6 +70,14 @@ type DbConfig struct {
 	Config   map[string]interface{} `mapstructure:"config"`
 }
 
+// ActivityConfig bounds the activity journal. MaxEventsPerProject is the only
+// guard on its size: nb_projects * max_events_per_project rows at most. Zero
+// disables the purge, which means accepting an unbounded table.
+type ActivityConfig struct {
+	MaxEventsPerProject int           `mapstructure:"max_events_per_project" validate:"min=0"`
+	PurgeInterval       time.Duration `mapstructure:"purge_interval" validate:"min=0"`
+}
+
 type AgentConfig struct {
 	OfflineThreshold time.Duration `mapstructure:"offline_threshold" validate:"required,min=1s"`
 }
@@ -79,6 +88,10 @@ func DefaultConfig() *Config {
 		Page: PageConfig{SizeLimit: 1024 * 1024, TotalSizeLimit: 1024 * 1024 * 100},
 		Agent: AgentConfig{
 			OfflineThreshold: 6 * time.Hour,
+		},
+		Activity: ActivityConfig{
+			MaxEventsPerProject: 1000,
+			PurgeInterval:       time.Hour,
 		},
 		Auth: AuthConfig{
 			JWT: JWTConfig{

@@ -14,6 +14,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+// Outcome labels of a background task run.
+const (
+	StatusSuccess = "success"
+	StatusError   = "error"
+)
+
 var (
 	// AgentErrorsGauge tracks the number of agents in error status per namespace/project
 	AgentErrorsGauge = prometheus.NewGaugeVec(
@@ -51,6 +57,40 @@ var (
 		},
 		[]string{"method", "path"},
 	)
+
+	// SchedulerTaskRunsTotal counts background task runs by outcome. A panic counts
+	// as an error, so a task crashing every run never reads as healthy.
+	SchedulerTaskRunsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "flecto_scheduler_task_runs_total",
+			Help: "Total number of background task runs, by outcome",
+		},
+		[]string{"task", "status"},
+	)
+
+	// SchedulerTaskDuration tracks how long a background task run takes, which is
+	// how a task drifting towards its timeout becomes visible before it hits it.
+	// Buckets span sub-second to a quarter of an hour: these are batch jobs, not
+	// requests.
+	SchedulerTaskDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "flecto_scheduler_task_duration_seconds",
+			Help:    "Background task run duration in seconds",
+			Buckets: []float64{0.1, 0.5, 1, 5, 15, 60, 300, 900},
+		},
+		[]string{"task"},
+	)
+
+	// SchedulerTaskLastSuccessTimestamp is when a background task last succeeded.
+	// It catches what a run counter cannot: a task that stopped running altogether
+	// emits no error, it simply stops emitting - and its last success ages.
+	SchedulerTaskLastSuccessTimestamp = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "flecto_scheduler_task_last_success_timestamp_seconds",
+			Help: "Unix timestamp of the last successful run of a background task",
+		},
+		[]string{"task"},
+	)
 )
 
 func init() {
@@ -58,6 +98,30 @@ func init() {
 	prometheus.MustRegister(AgentOnlineGauge)
 	prometheus.MustRegister(HTTPRequestsTotal)
 	prometheus.MustRegister(HTTPRequestDuration)
+	prometheus.MustRegister(SchedulerTaskRunsTotal)
+	prometheus.MustRegister(SchedulerTaskDuration)
+	prometheus.MustRegister(SchedulerTaskLastSuccessTimestamp)
+}
+
+// InitSchedulerTask publishes a task's counters before its first run. Without this
+// a task that has never run is absent from /metrics, and an alerting rule matching
+// nothing looks exactly like an alerting rule matching a healthy task.
+func InitSchedulerTask(task string) {
+	SchedulerTaskRunsTotal.WithLabelValues(task, StatusSuccess).Add(0)
+	SchedulerTaskRunsTotal.WithLabelValues(task, StatusError).Add(0)
+}
+
+// RecordSchedulerRun reports the outcome of one background task run.
+func RecordSchedulerRun(task string, duration time.Duration, err error) {
+	SchedulerTaskDuration.WithLabelValues(task).Observe(duration.Seconds())
+
+	if err != nil {
+		SchedulerTaskRunsTotal.WithLabelValues(task, StatusError).Inc()
+		return
+	}
+
+	SchedulerTaskRunsTotal.WithLabelValues(task, StatusSuccess).Inc()
+	SchedulerTaskLastSuccessTimestamp.WithLabelValues(task).SetToCurrentTime()
 }
 
 // AgentCount represents agent count for a namespace/project/status combination

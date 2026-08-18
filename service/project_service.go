@@ -42,6 +42,11 @@ type ProjectService interface {
 	TotalPageContentSize(ctx context.Context, namespaceCode, projectCode string) (int64, error)
 	TotalPageContentSizeLimit() int64
 	Publish(ctx context.Context, namespaceCode, projectCode string) (*model.Project, error)
+	// TruncateRedirects removes every redirect of a project, published and draft
+	// alike, and publishes the result.
+	TruncateRedirects(ctx context.Context, namespaceCode, projectCode string) (*model.Project, error)
+	// TruncatePages does the same for pages.
+	TruncatePages(ctx context.Context, namespaceCode, projectCode string) (*model.Project, error)
 }
 
 type projectService struct {
@@ -50,6 +55,7 @@ type projectService struct {
 	pageRepo          repository.PageRepository
 	repoRedirectDraft repository.RedirectDraftRepository
 	repoPageDraft     repository.PageDraftRepository
+	activity          ActivityService
 }
 
 func NewProjectService(
@@ -58,6 +64,7 @@ func NewProjectService(
 	pageRepo repository.PageRepository,
 	repoRedirectDraft repository.RedirectDraftRepository,
 	repoPageDraft repository.PageDraftRepository,
+	activity ActivityService,
 ) ProjectService {
 	return &projectService{
 		ctx:               ctx,
@@ -65,6 +72,7 @@ func NewProjectService(
 		pageRepo:          pageRepo,
 		repoRedirectDraft: repoRedirectDraft,
 		repoPageDraft:     repoPageDraft,
+		activity:          activity,
 	}
 }
 
@@ -204,11 +212,16 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 		return nil, errGetRedirectDraft
 	}
 
+	// Tallies for the single aggregated activity event written at the end of the publish.
+	activityRedirectCounts := model.ActivityPublishCounts{}
+	activityPageCounts := model.ActivityPublishCounts{}
+
 	redirects := make([]*model.Redirect, 0)
 	redirectsToDelete := make([]int64, 0)
 	redirectDraftIDs := make([]int64, 0, len(redirectDrafts))
 	for _, draft := range redirectDrafts {
 		redirectDraftIDs = append(redirectDraftIDs, draft.ID)
+		countPublishedDraft(&activityRedirectCounts, draft.ChangeType)
 		switch draft.ChangeType {
 		case model.DraftChangeTypeCreate, model.DraftChangeTypeUpdate:
 			redirects = append(redirects, &model.Redirect{
@@ -235,6 +248,7 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 	pageDraftIDs := make([]int64, 0, len(pageDrafts))
 	for _, draft := range pageDrafts {
 		pageDraftIDs = append(pageDraftIDs, draft.ID)
+		countPublishedDraft(&activityPageCounts, draft.ChangeType)
 		switch draft.ChangeType {
 		case model.DraftChangeTypeCreate, model.DraftChangeTypeUpdate:
 			pages = append(pages, &model.Page{
@@ -309,7 +323,20 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 		if err != nil {
 			return err
 		}
-		return nil
+
+		// One aggregated event: a publish moving 50k redirects is still a single
+		// user action.
+		return s.activity.Record(ctx, tx, model.ActivityInput{
+			NamespaceCode: namespaceCode,
+			ProjectCode:   projectCode,
+			Resource:      model.ActivityResourceProject,
+			Action:        model.ActivityActionPublish,
+			Data: model.ActivityPublish{
+				Version:   project.Version,
+				Redirects: activityRedirectCounts,
+				Pages:     activityPageCounts,
+			},
+		})
 	})
 	if err != nil {
 		if err == ErrPublishInProgress {
@@ -322,6 +349,18 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 
 	s.ctx.Logger.Info("publish completed", "namespace", namespaceCode, "project", projectCode, "version", project.Version, "redirects", len(redirects), "pages", len(pages))
 	return project, nil
+}
+
+// countPublishedDraft tallies a draft into the publish activity counters.
+func countPublishedDraft(counts *model.ActivityPublishCounts, changeType model.DraftChangeType) {
+	switch changeType {
+	case model.DraftChangeTypeCreate:
+		counts.Created++
+	case model.DraftChangeTypeUpdate:
+		counts.Updated++
+	case model.DraftChangeTypeDelete:
+		counts.Deleted++
+	}
 }
 
 // deleteByIDsInBatches deletes rows by primary key in chunks. A single IN clause
@@ -386,4 +425,82 @@ func isLockError(err error) bool {
 		return true
 	}
 	return false
+}
+
+// truncateResource wipes a project's rows of one resource and publishes the result.
+//
+// The publish is not a convenience: agents only re-sync when project.Version changes,
+// so without it they would keep serving the redirects or pages that were just
+// deleted. Same NOWAIT lock as Publish, so a truncate and a publish cannot interleave.
+func (s *projectService) truncateResource(
+	ctx context.Context,
+	namespaceCode, projectCode string,
+	resource model.ActivityResource,
+	draftModel, publishedModel any,
+) (*model.Project, error) {
+	s.ctx.Logger.Info("truncate started", "namespace", namespaceCode, "project", projectCode, "resource", resource)
+
+	project, err := s.repo.FindByCode(ctx, namespaceCode, projectCode)
+	if err != nil {
+		return nil, err
+	}
+
+	where := fmt.Sprintf("%s = ? AND %s = ?", model.ColumnNamespaceCode, model.ColumnProjectCode)
+
+	err = s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
+		var lockedProject model.Project
+		if errLock := tx.Clauses(clause.Locking{Strength: "UPDATE", Options: "NOWAIT"}).
+			Where(where, namespaceCode, projectCode).
+			First(&lockedProject).Error; errLock != nil {
+			if isLockError(errLock) {
+				return ErrPublishInProgress
+			}
+			return errLock
+		}
+
+		// Drafts first, explicitly, rather than relying on the cascade from the
+		// published rows: the counts reported in the journal must be exact.
+		draftResult := tx.Where(where, namespaceCode, projectCode).Delete(draftModel)
+		if draftResult.Error != nil {
+			return draftResult.Error
+		}
+
+		publishedResult := tx.Where(where, namespaceCode, projectCode).Delete(publishedModel)
+		if publishedResult.Error != nil {
+			return publishedResult.Error
+		}
+
+		project.Version++
+		project.PublishedAt = time.Now()
+		if errSave := tx.Save(project).Error; errSave != nil {
+			return errSave
+		}
+
+		return s.activity.Record(ctx, tx, model.ActivityInput{
+			NamespaceCode: namespaceCode,
+			ProjectCode:   projectCode,
+			Resource:      resource,
+			Action:        model.ActivityActionTruncate,
+			Data: model.ActivityTruncate{
+				Published: publishedResult.RowsAffected,
+				Drafts:    draftResult.RowsAffected,
+				Version:   project.Version,
+			},
+		})
+	})
+	if err != nil {
+		s.ctx.Logger.Error("truncate failed", "namespace", namespaceCode, "project", projectCode, "resource", resource, "error", err)
+		return nil, err
+	}
+
+	s.ctx.Logger.Info("truncate completed", "namespace", namespaceCode, "project", projectCode, "resource", resource, "version", project.Version)
+	return project, nil
+}
+
+func (s *projectService) TruncateRedirects(ctx context.Context, namespaceCode, projectCode string) (*model.Project, error) {
+	return s.truncateResource(ctx, namespaceCode, projectCode, model.ActivityResourceRedirect, &model.RedirectDraft{}, &model.Redirect{})
+}
+
+func (s *projectService) TruncatePages(ctx context.Context, namespaceCode, projectCode string) (*model.Project, error) {
+	return s.truncateResource(ctx, namespaceCode, projectCode, model.ActivityResourcePage, &model.PageDraft{}, &model.Page{})
 }

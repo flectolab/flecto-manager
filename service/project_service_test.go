@@ -37,7 +37,7 @@ func setupProjectServiceTest(t *testing.T) *projectServiceTestDeps {
 	mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
 	mockRedirectDraftRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
 	mockPageDraftRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
-	svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), mockProjRepo, mockPageRepo, mockRedirectDraftRepo, mockPageDraftRepo)
+	svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), mockProjRepo, mockPageRepo, mockRedirectDraftRepo, mockPageDraftRepo, newTestActivityService(t, nil))
 	return &projectServiceTestDeps{
 		ctrl:              ctrl,
 		mockProjRepo:      mockProjRepo,
@@ -1048,7 +1048,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1088,7 +1088,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1122,7 +1122,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1161,7 +1161,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1203,7 +1203,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1240,7 +1240,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1277,7 +1277,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1315,7 +1315,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1353,7 +1353,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1391,7 +1391,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1429,7 +1429,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1547,7 +1547,7 @@ func TestProjectService_Publish_LockError(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1586,7 +1586,7 @@ func TestProjectService_Publish_LockError(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo)
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1594,5 +1594,276 @@ func TestProjectService_Publish_LockError(t *testing.T) {
 		assert.Error(t, err)
 		assert.Equal(t, expectedErr, err)
 		assert.Nil(t, result)
+	})
+}
+
+func TestProjectService_PublishActivityEvent(t *testing.T) {
+	setup := func(t *testing.T) (*gorm.DB, ProjectService) {
+		t.Helper()
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		assert.NoError(t, err)
+		assert.NoError(t, db.AutoMigrate(
+			&model.Namespace{}, &model.Project{},
+			&model.Redirect{}, &model.RedirectDraft{},
+			&model.Page{}, &model.PageDraft{},
+		))
+
+		assert.NoError(t, db.Create(&model.Namespace{NamespaceCode: "test-ns", Name: "Test"}).Error)
+		assert.NoError(t, db.Create(&model.Project{ProjectCode: "test-proj", NamespaceCode: "test-ns", Name: "Test", Version: 4}).Error)
+
+		svc := NewProjectService(
+			testContextWithPageConfig(defaultProjectCfg),
+			repository.NewProjectRepository(db),
+			repository.NewPageRepository(db),
+			repository.NewRedirectDraftRepository(db),
+			repository.NewPageDraftRepository(db),
+			newTestActivityService(t, db),
+		)
+		return db, svc
+	}
+
+	// redirectDraft inserts a redirect and a draft of the given change type.
+	redirectDraft := func(t *testing.T, db *gorm.DB, changeType model.DraftChangeType, source string) {
+		t.Helper()
+		redirect := &model.Redirect{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			IsPublished:   types.Ptr(changeType != model.DraftChangeTypeCreate),
+			Redirect: &commonTypes.Redirect{
+				Type:   commonTypes.RedirectTypeBasic,
+				Source: source,
+				Target: "/target",
+				Status: commonTypes.RedirectStatusMovedPermanent,
+			},
+		}
+		assert.NoError(t, db.Create(redirect).Error)
+
+		draft := &model.RedirectDraft{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			ChangeType:    changeType,
+			OldRedirectID: &redirect.ID,
+		}
+		if changeType != model.DraftChangeTypeDelete {
+			draft.NewRedirect = redirect.Redirect
+		}
+		assert.NoError(t, db.Create(draft).Error)
+	}
+
+	pageDraft := func(t *testing.T, db *gorm.DB, changeType model.DraftChangeType, path string) {
+		t.Helper()
+		page := &model.Page{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			IsPublished:   types.Ptr(changeType != model.DraftChangeTypeCreate),
+			Page: &commonTypes.Page{
+				Type:        commonTypes.PageTypeBasic,
+				Path:        path,
+				Content:     "body",
+				ContentType: commonTypes.PageContentTypeTextPlain,
+			},
+		}
+		assert.NoError(t, db.Create(page).Error)
+
+		draft := &model.PageDraft{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			ChangeType:    changeType,
+			OldPageID:     &page.ID,
+			ContentSize:   4,
+		}
+		if changeType != model.DraftChangeTypeDelete {
+			draft.NewPage = page.Page
+		}
+		assert.NoError(t, db.Create(draft).Error)
+	}
+
+	t.Run("records one event with the new version and the counts", func(t *testing.T) {
+		db, svc := setup(t)
+
+		redirectDraft(t, db, model.DraftChangeTypeCreate, "/created")
+		redirectDraft(t, db, model.DraftChangeTypeCreate, "/created-2")
+		redirectDraft(t, db, model.DraftChangeTypeUpdate, "/updated")
+		redirectDraft(t, db, model.DraftChangeTypeDelete, "/deleted")
+		pageDraft(t, db, model.DraftChangeTypeUpdate, "/page.txt")
+
+		project, err := svc.Publish(context.Background(), "test-ns", "test-proj")
+		assert.NoError(t, err)
+		assert.Equal(t, 5, project.Version)
+
+		// Five drafts published, a single journal entry
+		assert.Equal(t, int64(1), countActivityEvents(t, db))
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityResourceProject, event.Resource)
+		assert.Equal(t, model.ActivityActionPublish, event.Action)
+		assert.Nil(t, event.ResourceID)
+		// The version is the one the publish produced, not the one it started from
+		assert.JSONEq(t,
+			`{"version":5,`+
+				`"redirects":{"created":2,"updated":1,"deleted":1},`+
+				`"pages":{"created":0,"updated":1,"deleted":0}}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("a publish with nothing pending records no event", func(t *testing.T) {
+		db, svc := setup(t)
+
+		_, err := svc.Publish(context.Background(), "test-ns", "test-proj")
+		assert.Error(t, err)
+		assert.Zero(t, countActivityEvents(t, db))
+	})
+}
+
+func TestProjectService_Truncate(t *testing.T) {
+	setup := func(t *testing.T) (*gorm.DB, ProjectService) {
+		t.Helper()
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		assert.NoError(t, err)
+		assert.NoError(t, db.AutoMigrate(
+			&model.Namespace{}, &model.Project{},
+			&model.Redirect{}, &model.RedirectDraft{},
+			&model.Page{}, &model.PageDraft{},
+		))
+		assert.NoError(t, db.Create(&model.Namespace{NamespaceCode: "ns", Name: "NS"}).Error)
+		assert.NoError(t, db.Create(&model.Project{ProjectCode: "proj", NamespaceCode: "ns", Name: "P", Version: 7}).Error)
+
+		svc := NewProjectService(
+			testContextWithPageConfig(defaultProjectCfg),
+			repository.NewProjectRepository(db),
+			repository.NewPageRepository(db),
+			repository.NewRedirectDraftRepository(db),
+			repository.NewPageDraftRepository(db),
+			newTestActivityService(t, db),
+		)
+		return db, svc
+	}
+
+	seedRedirect := func(t *testing.T, db *gorm.DB, project string, published bool, withDraft bool) {
+		t.Helper()
+		redirect := &model.Redirect{
+			NamespaceCode: "ns", ProjectCode: project, IsPublished: types.Ptr(published),
+			Redirect: &commonTypes.Redirect{Type: commonTypes.RedirectTypeBasic, Source: "/s", Target: "/t", Status: commonTypes.RedirectStatusFound},
+		}
+		assert.NoError(t, db.Create(redirect).Error)
+		if withDraft {
+			assert.NoError(t, db.Create(&model.RedirectDraft{
+				NamespaceCode: "ns", ProjectCode: project,
+				ChangeType: model.DraftChangeTypeUpdate, OldRedirectID: &redirect.ID,
+			}).Error)
+		}
+	}
+
+	countIn := func(t *testing.T, db *gorm.DB, dest any, project string) int64 {
+		t.Helper()
+		var n int64
+		assert.NoError(t, db.Model(dest).Where("namespace_code = ? AND project_code = ?", "ns", project).Count(&n).Error)
+		return n
+	}
+
+	t.Run("removes published redirects and their drafts", func(t *testing.T) {
+		db, svc := setup(t)
+		seedRedirect(t, db, "proj", true, true)
+		seedRedirect(t, db, "proj", true, false)
+		seedRedirect(t, db, "proj", false, true)
+
+		project, err := svc.TruncateRedirects(context.Background(), "ns", "proj")
+		assert.NoError(t, err)
+
+		assert.Zero(t, countIn(t, db, &model.Redirect{}, "proj"))
+		assert.Zero(t, countIn(t, db, &model.RedirectDraft{}, "proj"))
+		assert.Equal(t, 8, project.Version, "the truncate must publish, or agents keep serving what was deleted")
+	})
+
+	t.Run("bumps the version so agents re-sync", func(t *testing.T) {
+		db, svc := setup(t)
+		seedRedirect(t, db, "proj", true, false)
+
+		before := &model.Project{}
+		assert.NoError(t, db.Where("project_code = ?", "proj").First(before).Error)
+
+		_, err := svc.TruncateRedirects(context.Background(), "ns", "proj")
+		assert.NoError(t, err)
+
+		after := &model.Project{}
+		assert.NoError(t, db.Where("project_code = ?", "proj").First(after).Error)
+		assert.Equal(t, before.Version+1, after.Version)
+		assert.True(t, after.PublishedAt.After(before.PublishedAt))
+	})
+
+	t.Run("leaves other projects alone", func(t *testing.T) {
+		db, svc := setup(t)
+		assert.NoError(t, db.Create(&model.Project{ProjectCode: "other", NamespaceCode: "ns", Name: "O", Version: 1}).Error)
+		seedRedirect(t, db, "proj", true, true)
+		seedRedirect(t, db, "other", true, true)
+
+		_, err := svc.TruncateRedirects(context.Background(), "ns", "proj")
+		assert.NoError(t, err)
+
+		assert.Zero(t, countIn(t, db, &model.Redirect{}, "proj"))
+		assert.Equal(t, int64(1), countIn(t, db, &model.Redirect{}, "other"))
+		assert.Equal(t, int64(1), countIn(t, db, &model.RedirectDraft{}, "other"))
+	})
+
+	t.Run("records one entry with exact counts", func(t *testing.T) {
+		db, svc := setup(t)
+		seedRedirect(t, db, "proj", true, true)
+		seedRedirect(t, db, "proj", true, true)
+		seedRedirect(t, db, "proj", true, false)
+
+		_, err := svc.TruncateRedirects(context.Background(), "ns", "proj")
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.NotNil(t, event)
+		assert.Equal(t, model.ActivityResourceRedirect, event.Resource)
+		assert.Equal(t, model.ActivityActionTruncate, event.Action)
+		assert.JSONEq(t, `{"published":3,"drafts":2,"version":8}`, string(event.Data))
+	})
+
+	t.Run("an empty project is a no-op that still publishes", func(t *testing.T) {
+		db, svc := setup(t)
+
+		project, err := svc.TruncateRedirects(context.Background(), "ns", "proj")
+		assert.NoError(t, err)
+		assert.Equal(t, 8, project.Version)
+
+		event := lastActivityEvent(t, db)
+		assert.JSONEq(t, `{"published":0,"drafts":0,"version":8}`, string(event.Data))
+	})
+
+	t.Run("pages truncate is independent from redirects", func(t *testing.T) {
+		db, svc := setup(t)
+		seedRedirect(t, db, "proj", true, true)
+		page := &model.Page{
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
+			Page: &commonTypes.Page{Type: commonTypes.PageTypeBasic, Path: "/p", Content: "x", ContentType: commonTypes.PageContentTypeTextPlain},
+		}
+		assert.NoError(t, db.Create(page).Error)
+		assert.NoError(t, db.Create(&model.PageDraft{
+			NamespaceCode: "ns", ProjectCode: "proj",
+			ChangeType: model.DraftChangeTypeUpdate, OldPageID: &page.ID,
+		}).Error)
+
+		_, err := svc.TruncatePages(context.Background(), "ns", "proj")
+		assert.NoError(t, err)
+
+		assert.Zero(t, countIn(t, db, &model.Page{}, "proj"))
+		assert.Zero(t, countIn(t, db, &model.PageDraft{}, "proj"))
+		assert.Equal(t, int64(1), countIn(t, db, &model.Redirect{}, "proj"), "redirects must be untouched")
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityResourcePage, event.Resource)
+		assert.Equal(t, model.ActivityActionTruncate, event.Action)
+	})
+
+	t.Run("nothing is removed when the project does not exist", func(t *testing.T) {
+		db, svc := setup(t)
+		seedRedirect(t, db, "proj", true, true)
+
+		_, err := svc.TruncateRedirects(context.Background(), "ns", "missing")
+		assert.Error(t, err)
+		assert.Equal(t, int64(1), countIn(t, db, &model.Redirect{}, "proj"))
 	})
 }

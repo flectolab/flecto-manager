@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -27,7 +28,7 @@ func setupRedirectImportServiceTest(t *testing.T) (*gomock.Controller, *mockFlec
 	err = db.AutoMigrate(&model.Namespace{}, &model.Project{}, &model.Redirect{}, &model.RedirectDraft{})
 	assert.NoError(t, err)
 	mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-	svc := NewRedirectImportService(appContext.TestContext(nil), mockRepo)
+	svc := NewRedirectImportService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 	return ctrl, mockRepo, db, svc
 }
 
@@ -995,7 +996,7 @@ func TestRedirectImportService_GetTx(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
-	svc := NewRedirectImportService(appContext.TestContext(nil), mockRepo)
+	svc := NewRedirectImportService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, nil))
 
 	ctx := context.Background()
 	mockRepo.EXPECT().GetTx(ctx).Return(nil)
@@ -1009,11 +1010,78 @@ func TestRedirectImportService_GetQuery(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
-	svc := NewRedirectImportService(appContext.TestContext(nil), mockRepo)
+	svc := NewRedirectImportService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, nil))
 
 	ctx := context.Background()
 	mockRepo.EXPECT().GetQuery(ctx).Return(nil)
 
 	result := svc.GetQuery(ctx)
 	assert.Nil(t, result)
+}
+
+func TestRedirectImportService_ActivityEvents(t *testing.T) {
+	t.Run("an import records exactly one aggregated event", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		rows := make([]string, 0, 50)
+		for i := 0; i < 50; i++ {
+			rows = append(rows, fmt.Sprintf("BASIC\t/old%d\t/new%d\t301", i, i))
+		}
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(rows...),
+			ImportRedirectOptions{Overwrite: true, Filename: "redirects.tsv"})
+		assert.NoError(t, err)
+		assert.Equal(t, 50, result.ImportedCount)
+
+		// 50 imported redirects, still a single journal entry
+		assert.Equal(t, int64(1), countActivityEvents(t, db))
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityResourceRedirect, event.Resource)
+		assert.Equal(t, model.ActivityActionImport, event.Action)
+		assert.Nil(t, event.ResourceID)
+		assert.JSONEq(t,
+			`{"filename":"redirects.tsv","overwrite":true,"totalLines":50,"imported":50,"skipped":0,"errorCount":0}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("the error sample is capped while the count stays exact", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		// Twice the sample cap, all invalid
+		invalidRows := model.ActivityImportErrorSampleMax * 2
+		rows := make([]string, 0, invalidRows)
+		for i := 0; i < invalidRows; i++ {
+			rows = append(rows, fmt.Sprintf("NOT_A_TYPE\t/old%d\t/new%d\t301", i, i))
+		}
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(rows...), ImportRedirectOptions{})
+		assert.NoError(t, err)
+		assert.Equal(t, invalidRows, result.ErrorCount)
+
+		var payload model.ActivityImport
+		assert.NoError(t, json.Unmarshal(lastActivityEvent(t, db).Data, &payload))
+
+		assert.Equal(t, invalidRows, payload.ErrorCount)
+		assert.Len(t, payload.ErrorSample, model.ActivityImportErrorSampleMax)
+		// A truncated sample stays detectable
+		assert.Greater(t, payload.ErrorCount, len(payload.ErrorSample))
+		assert.Equal(t, string(ImportErrorInvalidType), payload.ErrorSample[0].Reason)
+	})
+
+	t.Run("an empty file still records the import", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(), ImportRedirectOptions{})
+		assert.NoError(t, err)
+		assert.Zero(t, result.TotalLines)
+
+		event := lastActivityEvent(t, db)
+		assert.NotNil(t, event)
+		assert.Equal(t, model.ActivityActionImport, event.Action)
+	})
 }

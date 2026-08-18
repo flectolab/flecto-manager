@@ -36,7 +36,7 @@ func setupPageDraftServiceTest(t *testing.T) (*gomock.Controller, *mockFlectoRep
 	err = db.AutoMigrate(&model.Namespace{}, &model.Project{}, &model.Page{}, &model.PageDraft{})
 	assert.NoError(t, err)
 	mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-	svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+	svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, db))
 	return ctrl, mockRepo, mockPageRepo, db, svc
 }
 
@@ -361,7 +361,7 @@ func TestPageDraftService_Create(t *testing.T) {
 		mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
 		mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		newPage := &commonTypes.Page{
@@ -400,7 +400,7 @@ func TestPageDraftService_Create(t *testing.T) {
 		mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
 		mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		newPage := &commonTypes.Page{
@@ -423,7 +423,7 @@ func TestPageDraftService_Create(t *testing.T) {
 
 func TestPageDraftService_Update(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		ctrl, mockRepo, _, _, svc := setupPageDraftServiceTest(t)
+		ctrl, mockRepo, _, db, svc := setupPageDraftServiceTest(t)
 		defer ctrl.Finish()
 
 		ctx := context.Background()
@@ -451,19 +451,34 @@ func TestPageDraftService_Update(t *testing.T) {
 
 		mockRepo.EXPECT().FindByID(ctx, int64(1)).Return(existingDraft, nil)
 		mockRepo.EXPECT().CheckPathAvailability(ctx, "test-ns", "test-proj", "/new-path.txt", &oldPageID, gomock.Any()).Return(true, nil)
-		mockRepo.EXPECT().Update(ctx, gomock.Any()).DoAndReturn(func(ctx context.Context, draft *model.PageDraft) error {
-			assert.Equal(t, "/new-path.txt", draft.NewPage.Path)
-			return nil
-		})
 
 		result, err := svc.Update(ctx, 1, newPage)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "/new-path.txt", result.NewPage.Path)
+
+		// The draft is saved through the transaction that also writes the activity event
+		var stored model.PageDraft
+		assert.NoError(t, db.First(&stored, int64(1)).Error)
+		assert.Equal(t, "/new-path.txt", stored.NewPage.Path)
+
+		// Editing a pending change is recorded as an update, and the page content
+		// never reaches the payload
+		event := lastActivityEvent(t, db)
+		assert.NotNil(t, event)
+		assert.Equal(t, model.ActivityResourcePage, event.Resource)
+		assert.Equal(t, model.ActivityActionUpdate, event.Action)
+		assert.Equal(t, oldPageID, *event.ResourceID)
+		assert.JSONEq(t,
+			`{"before":{"type":"BASIC","path":"/old-path.txt","contentType":"TEXT_PLAIN","contentSize":100},`+
+				`"after":{"type":"BASIC","path":"/new-path.txt","contentType":"TEXT_PLAIN","contentSize":11}}`,
+			string(event.Data),
+		)
+		assert.NotContains(t, string(event.Data), "content\":")
 	})
 
 	t.Run("success without path change", func(t *testing.T) {
-		ctrl, mockRepo, _, _, svc := setupPageDraftServiceTest(t)
+		ctrl, mockRepo, _, db, svc := setupPageDraftServiceTest(t)
 		defer ctrl.Finish()
 
 		ctx := context.Background()
@@ -491,12 +506,12 @@ func TestPageDraftService_Update(t *testing.T) {
 
 		mockRepo.EXPECT().FindByID(ctx, int64(1)).Return(existingDraft, nil)
 		// No CheckPathAvailability call because path didn't change
-		mockRepo.EXPECT().Update(ctx, gomock.Any()).Return(nil)
 
 		result, err := svc.Update(ctx, 1, newPage)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "new content", result.NewPage.Content)
+		assert.Equal(t, int64(1), countActivityEvents(t, db))
 	})
 
 	t.Run("error path already used", func(t *testing.T) {
@@ -712,8 +727,25 @@ func TestPageDraftService_Update(t *testing.T) {
 	})
 
 	t.Run("update error", func(t *testing.T) {
-		ctrl, mockRepo, _, _, svc := setupPageDraftServiceTest(t)
+		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
+
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		assert.NoError(t, err)
+		err = db.AutoMigrate(&model.Namespace{}, &model.Project{}, &model.Page{}, &model.PageDraft{})
+		assert.NoError(t, err)
+
+		// Fail the draft save inside the transaction
+		db.Callback().Create().Before("gorm:create").Register("fail_draft_save", func(d *gorm.DB) {
+			if d.Statement.Table == "page_drafts" {
+				d.Error = errors.New("update failed")
+			}
+		})
+
+		mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
+		mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
+		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
+		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		existingDraft := &model.PageDraft{
@@ -732,16 +764,16 @@ func TestPageDraftService_Update(t *testing.T) {
 			Content:     "content",
 			ContentType: commonTypes.PageContentTypeTextPlain,
 		}
-		expectedErr := errors.New("update failed")
 
 		mockRepo.EXPECT().FindByID(ctx, int64(1)).Return(existingDraft, nil)
-		mockRepo.EXPECT().Update(ctx, gomock.Any()).Return(expectedErr)
 
 		result, err := svc.Update(ctx, 1, newPage)
 
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
+		assert.Contains(t, err.Error(), "update failed")
 		assert.Nil(t, result)
+		// The activity event must not survive the failed change
+		assert.Zero(t, countActivityEvents(t, db))
 	})
 }
 
@@ -904,7 +936,7 @@ func TestPageDraftService_Delete(t *testing.T) {
 		mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
 		mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		mockRepo.EXPECT().FindByID(ctx, draft.ID).Return(draft, nil)
@@ -948,7 +980,7 @@ func TestPageDraftService_Delete(t *testing.T) {
 		mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
 		mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		mockRepo.EXPECT().FindByID(ctx, draft.ID).Return(draft, nil)
@@ -1129,7 +1161,7 @@ func TestPageDraftService_Rollback(t *testing.T) {
 		mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
 		mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 
@@ -1159,7 +1191,7 @@ func TestPageDraftService_Rollback(t *testing.T) {
 		mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
 		mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+		svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 
@@ -1366,7 +1398,7 @@ func TestPageDraftService_GetTx(t *testing.T) {
 
 	mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
 	mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
-	svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+	svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, nil))
 
 	ctx := context.Background()
 	mockRepo.EXPECT().GetTx(ctx).Return(nil)
@@ -1381,11 +1413,210 @@ func TestPageDraftService_GetQuery(t *testing.T) {
 
 	mockRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
 	mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
-	svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo)
+	svc := NewPageDraftService(testContextWithPageConfig(defaultPageDraftTestConfig), mockRepo, mockPageRepo, newTestActivityService(t, nil))
 
 	ctx := context.Background()
 	mockRepo.EXPECT().GetQuery(ctx).Return(nil)
 
 	result := svc.GetQuery(ctx)
 	assert.Nil(t, result)
+}
+
+func TestPageDraftService_ActivityEvents(t *testing.T) {
+	publishedPage := func(t *testing.T, db *gorm.DB) *model.Page {
+		t.Helper()
+		published := true
+		page := &model.Page{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			IsPublished:   &published,
+			ContentSize:   9,
+			Page: &commonTypes.Page{
+				Type:        commonTypes.PageTypeBasic,
+				Path:        "/live.txt",
+				Content:     "live body",
+				ContentType: commonTypes.PageContentTypeTextPlain,
+			},
+		}
+		assert.NoError(t, db.Create(page).Error)
+		return page
+	}
+
+	newPage := &commonTypes.Page{
+		Type:        commonTypes.PageTypeBasic,
+		Path:        "/robots.txt",
+		Content:     "User-agent: *",
+		ContentType: commonTypes.PageContentTypeTextPlain,
+	}
+
+	reloadDraft := func(db *gorm.DB) func(context.Context, int64) (*model.PageDraft, error) {
+		return func(_ context.Context, id int64) (*model.PageDraft, error) {
+			var draft model.PageDraft
+			return &draft, db.First(&draft, id).Error
+		}
+	}
+
+	t.Run("creating a page records a CREATE without its content", func(t *testing.T) {
+		ctrl, mockRepo, mockPageRepo, db, svc := setupPageDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		mockRepo.EXPECT().CheckPathAvailability(ctx, "test-ns", "test-proj", "/robots.txt", (*int64)(nil), (*int64)(nil)).Return(true, nil)
+		mockPageRepo.EXPECT().GetTotalContentSize(ctx, "test-ns", "test-proj").Return(int64(0), nil)
+		mockRepo.EXPECT().FindByID(ctx, gomock.Any()).DoAndReturn(reloadDraft(db))
+
+		result, err := svc.Create(ctx, "test-ns", "test-proj", nil, newPage)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.NotNil(t, event)
+		assert.Equal(t, model.ActivityResourcePage, event.Resource)
+		assert.Equal(t, model.ActivityActionCreate, event.Action)
+		assert.Equal(t, *result.OldPageID, *event.ResourceID)
+		assert.JSONEq(t,
+			`{"after":{"type":"BASIC","path":"/robots.txt","contentType":"TEXT_PLAIN","contentSize":13}}`,
+			string(event.Data),
+		)
+		assert.NotContains(t, string(event.Data), "User-agent")
+	})
+
+	t.Run("updating a published page records its previous state without content", func(t *testing.T) {
+		ctrl, mockRepo, mockPageRepo, db, svc := setupPageDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		existing := publishedPage(t, db)
+
+		mockRepo.EXPECT().CheckPathAvailability(ctx, "test-ns", "test-proj", "/robots.txt", &existing.ID, (*int64)(nil)).Return(true, nil)
+		mockPageRepo.EXPECT().GetTotalContentSize(ctx, "test-ns", "test-proj").Return(int64(0), nil)
+		mockRepo.EXPECT().FindByID(ctx, gomock.Any()).DoAndReturn(reloadDraft(db))
+
+		_, err := svc.Create(ctx, "test-ns", "test-proj", &existing.ID, newPage)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityActionUpdate, event.Action)
+		assert.JSONEq(t,
+			`{"before":{"type":"BASIC","path":"/live.txt","contentType":"TEXT_PLAIN","contentSize":9},`+
+				`"after":{"type":"BASIC","path":"/robots.txt","contentType":"TEXT_PLAIN","contentSize":13}}`,
+			string(event.Data),
+		)
+		assert.NotContains(t, string(event.Data), "live body")
+	})
+
+	t.Run("deleting a page records a DELETE with no after", func(t *testing.T) {
+		ctrl, mockRepo, _, db, svc := setupPageDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		existing := publishedPage(t, db)
+
+		mockRepo.EXPECT().FindByID(ctx, gomock.Any()).DoAndReturn(reloadDraft(db))
+
+		_, err := svc.Create(ctx, "test-ns", "test-proj", &existing.ID, nil)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityActionDelete, event.Action)
+		assert.JSONEq(t,
+			`{"before":{"type":"BASIC","path":"/live.txt","contentType":"TEXT_PLAIN","contentSize":9}}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("discarding one draft records a single scoped rollback", func(t *testing.T) {
+		ctrl, mockRepo, _, db, svc := setupPageDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		existing := publishedPage(t, db)
+		draft := &model.PageDraft{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			ChangeType:    model.DraftChangeTypeUpdate,
+			OldPageID:     &existing.ID,
+			ContentSize:   13,
+			NewPage:       newPage,
+		}
+		assert.NoError(t, db.Create(draft).Error)
+
+		mockRepo.EXPECT().FindByID(ctx, draft.ID).Return(draft, nil)
+
+		ok, err := svc.Delete(ctx, draft.ID)
+		assert.NoError(t, err)
+		assert.True(t, ok)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityActionRollback, event.Action)
+		assert.JSONEq(t,
+			`{"scope":"SINGLE","changeType":"UPDATE",`+
+				`"entry":{"type":"BASIC","path":"/robots.txt","contentType":"TEXT_PLAIN","contentSize":13}}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("discarding a delete draft shows the page it would have removed", func(t *testing.T) {
+		ctrl, mockRepo, _, db, svc := setupPageDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		existing := publishedPage(t, db)
+		// A delete draft has no new version, the entry can only come from the old one
+		draft := &model.PageDraft{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			ChangeType:    model.DraftChangeTypeDelete,
+			OldPageID:     &existing.ID,
+			OldPage:       existing,
+		}
+		assert.NoError(t, db.Create(draft).Error)
+
+		mockRepo.EXPECT().FindByID(ctx, draft.ID).Return(draft, nil)
+
+		_, err := svc.Delete(ctx, draft.ID)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.JSONEq(t,
+			`{"scope":"SINGLE","changeType":"DELETE",`+
+				`"entry":{"type":"BASIC","path":"/live.txt","contentType":"TEXT_PLAIN","contentSize":9}}`,
+			string(event.Data),
+		)
+		assert.NotContains(t, string(event.Data), "live body")
+	})
+
+	t.Run("project rollback records the discarded counts", func(t *testing.T) {
+		ctrl, _, _, db, svc := setupPageDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		for _, changeType := range []model.DraftChangeType{
+			model.DraftChangeTypeCreate,
+			model.DraftChangeTypeUpdate,
+			model.DraftChangeTypeUpdate,
+		} {
+			assert.NoError(t, db.Create(&model.PageDraft{
+				NamespaceCode: "test-ns",
+				ProjectCode:   "test-proj",
+				ChangeType:    changeType,
+			}).Error)
+		}
+
+		ok, err := svc.Rollback(context.Background(), "test-ns", "test-proj")
+		assert.NoError(t, err)
+		assert.True(t, ok)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityActionRollback, event.Action)
+		assert.JSONEq(t, `{"scope":"PROJECT","discarded":{"create":1,"update":2,"delete":0}}`, string(event.Data))
+	})
+
+	t.Run("rollback with nothing pending records no event", func(t *testing.T) {
+		ctrl, _, _, db, svc := setupPageDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ok, err := svc.Rollback(context.Background(), "test-ns", "test-proj")
+		assert.NoError(t, err)
+		assert.True(t, ok)
+		assert.Zero(t, countActivityEvents(t, db))
+	})
 }

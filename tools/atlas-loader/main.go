@@ -65,6 +65,10 @@ var customForeignKeys = []string{
 	"ALTER TABLE `redirect_drafts` ADD CONSTRAINT `fk_redirect_drafts_project` FOREIGN KEY (`namespace_code`,`project_code`) REFERENCES `projects`(`namespace_code`,`project_code`) ON DELETE CASCADE;",
 	"ALTER TABLE `page_drafts` ADD CONSTRAINT `fk_pages_page_draft` FOREIGN KEY (`old_page_id`) REFERENCES `pages`(`id`) ON DELETE CASCADE;",
 	"ALTER TABLE `redirect_drafts` ADD CONSTRAINT `fk_redirects_redirect_draft` FOREIGN KEY (`old_redirect_id`) REFERENCES `redirects`(`id`) ON DELETE CASCADE;",
+	// Activity: the journal dies with its project, but survives its author. Deleting a
+	// user only clears the link, the actor name stays in the row.
+	"ALTER TABLE `activity_events` ADD CONSTRAINT `fk_activity_events_project` FOREIGN KEY (`namespace_code`,`project_code`) REFERENCES `projects`(`namespace_code`,`project_code`) ON DELETE CASCADE;",
+	"ALTER TABLE `activity_events` ADD CONSTRAINT `fk_activity_events_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL;",
 }
 
 func main() {

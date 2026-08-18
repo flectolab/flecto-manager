@@ -1,7 +1,43 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation } from '@apollo/client/react'
-import { GetProjectDocument, CreateProjectDocument, UpdateProjectDocument, DeleteProjectDocument, GetNamespacesDocument } from '../../generated/graphql'
+import {
+  GetProjectDocument,
+  CreateProjectDocument,
+  UpdateProjectDocument,
+  DeleteProjectDocument,
+  GetNamespacesDocument,
+  TruncateProjectRedirectsDocument,
+  TruncateProjectPagesDocument,
+  TruncateProjectActivityDocument,
+} from '../../generated/graphql'
+import { ConfirmModal } from '../../components/redirects'
+
+type TruncateTarget = 'redirects' | 'pages' | 'activity'
+
+const TRUNCATE_ACTIONS: { target: TruncateTarget; label: string }[] = [
+  { target: 'redirects', label: 'Truncate all redirects' },
+  { target: 'pages', label: 'Truncate all pages' },
+  { target: 'activity', label: 'Truncate activity journal' },
+]
+
+const truncateConfirm: Record<TruncateTarget, { title: string; message: string }> = {
+  redirects: {
+    title: 'Truncate all redirects',
+    message:
+      'Every redirect of this project will be removed, published and draft alike, and the project will be published so agents stop serving them.',
+  },
+  pages: {
+    title: 'Truncate all pages',
+    message:
+      'Every page of this project will be removed, published and draft alike, and the project will be published so agents stop serving them.',
+  },
+  activity: {
+    title: 'Truncate activity journal',
+    message:
+      'The whole activity history of this project will be removed. A single entry is kept, recording that you cleared it. Redirects and pages are not affected.',
+  },
+}
 import { usePermissions, AdminSection, Action, validateCode } from '../../hooks/usePermissions'
 import { useDocumentTitle } from '../../hooks/useDocumentTitle'
 import { UnsavedChangesIndicator } from '../../components/UnsavedChangesIndicator'
@@ -26,6 +62,9 @@ export function ProjectForm() {
   const [success, setSuccess] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState(false)
   const [isModified, setIsModified] = useState(false)
+  // Which truncate the user is being asked to confirm, if any
+  const [truncateTarget, setTruncateTarget] = useState<TruncateTarget | null>(null)
+  const [truncateResult, setTruncateResult] = useState('')
 
   // Fetch project data if editing
   const { data: projectData, loading: projectLoading } = useQuery(GetProjectDocument, {
@@ -41,8 +80,12 @@ export function ProjectForm() {
   const [createProject, { loading: createLoading }] = useMutation(CreateProjectDocument)
   const [updateProject, { loading: updateLoading }] = useMutation(UpdateProjectDocument)
   const [deleteProject, { loading: deleteLoading }] = useMutation(DeleteProjectDocument)
+  const [truncateRedirects, { loading: truncateRedirectsLoading }] = useMutation(TruncateProjectRedirectsDocument)
+  const [truncatePages, { loading: truncatePagesLoading }] = useMutation(TruncateProjectPagesDocument)
+  const [truncateActivity, { loading: truncateActivityLoading }] = useMutation(TruncateProjectActivityDocument)
 
-  const isLoading = createLoading || updateLoading || deleteLoading
+  const truncateLoading = truncateRedirectsLoading || truncatePagesLoading || truncateActivityLoading
+  const isLoading = createLoading || updateLoading || deleteLoading || truncateLoading
 
   // Populate form when project data is loaded
   useEffect(() => {
@@ -125,6 +168,36 @@ export function ProjectForm() {
 
   const handleCancel = () => {
     navigate('/admin/projects')
+  }
+
+  const handleTruncateConfirm = async () => {
+    if (!truncateTarget) return
+
+    const target = truncateTarget
+    setTruncateTarget(null)
+    setError('')
+    setTruncateResult('')
+
+    try {
+      const variables = { namespaceCode, projectCode }
+
+      if (target === 'redirects') {
+        const { data } = await truncateRedirects({ variables })
+        setTruncateResult(
+          `All redirects removed. Project published as v${data?.truncateProjectRedirects.version}.`
+        )
+      } else if (target === 'pages') {
+        const { data } = await truncatePages({ variables })
+        setTruncateResult(
+          `All pages removed. Project published as v${data?.truncateProjectPages.version}.`
+        )
+      } else {
+        const { data } = await truncateActivity({ variables })
+        setTruncateResult(`${data?.truncateProjectActivity ?? 0} journal entries removed.`)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Truncate failed')
+    }
   }
 
   const handleDeleteClick = () => {
@@ -474,11 +547,57 @@ export function ProjectForm() {
                     Delete Project
                   </button>
                 </div>
+
+                <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+                  <h4 className="text-xs font-medium text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                    Truncate
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                    Removes everything of that kind in{' '}
+                    <span className="font-mono">{namespaceCode}/{projectCode}</span>, drafts
+                    included. Redirects and pages are published straight away, so agents stop
+                    serving them.
+                  </p>
+                  <div className="space-y-2">
+                    {TRUNCATE_ACTIONS.map((action) => (
+                      <button
+                        key={action.target}
+                        onClick={() => setTruncateTarget(action.target)}
+                        disabled={isLoading}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border border-amber-200 dark:border-amber-800 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors disabled:opacity-50"
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {truncateResult && (
+                    <p className="mt-3 text-xs text-slate-600 dark:text-slate-400">{truncateResult}</p>
+                  )}
+                </div>
               </div>
             )}
           </div>
         )}
       </div>
+
+      {/* Truncate Confirmation Modal */}
+      {truncateTarget && (
+        <ConfirmModal
+          title={truncateConfirm[truncateTarget].title}
+          message={
+            <>
+              {truncateConfirm[truncateTarget].message}{' '}
+              This affects <strong>{namespaceCode}/{projectCode}</strong> only, and cannot be
+              undone.
+            </>
+          }
+          confirmLabel={truncateLoading ? 'Working...' : 'Truncate'}
+          variant="danger"
+          onConfirm={handleTruncateConfirm}
+          onCancel={() => setTruncateTarget(null)}
+        />
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (

@@ -1,0 +1,28 @@
+query ProjectActivityEvents(
+  $namespaceCode: String!
+  $projectCode: String!
+  $pagination: PaginationInput
+  $filter: ActivityEventFilter
+) {
+  projectActivityEvents(
+    namespaceCode: $namespaceCode
+    projectCode: $projectCode
+    pagination: $pagination
+    filter: $filter
+  ) {
+    items {
+      id
+      resource
+      action
+      userID
+      actor
+      authType
+      resourceID
+      data
+      occurredAt
+    }
+    total
+    limit
+    offset
+  }
+}

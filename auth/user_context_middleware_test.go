@@ -14,6 +14,7 @@ import (
 	"github.com/flectolab/flecto-manager/model"
 	"github.com/flectolab/flecto-manager/service"
 	"github.com/flectolab/flecto-manager/types"
+	jwtgo "github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
@@ -43,6 +44,20 @@ func setupMiddlewareMocks(t *testing.T) (*middlewareMocks, *config.JWTConfig) {
 	return mocks, jwtConfig
 }
 
+// assertUnauthorized checks that an authentication failure is reported as a 401
+// carrying the expected message. A bare error would surface as a 500 and leave a
+// client unable to tell an expired token from a broken server.
+func assertUnauthorized(t *testing.T, err error, wantMessage string) {
+	t.Helper()
+
+	assert.Error(t, err)
+	var httpErr *echo.HTTPError
+	if assert.ErrorAs(t, err, &httpErr) {
+		assert.Equal(t, http.StatusUnauthorized, httpErr.Code)
+		assert.Equal(t, wantMessage, httpErr.Message)
+	}
+}
+
 func TestUserCtxAuthMiddleware_MissingHeader(t *testing.T) {
 	mocks, jwtConfig := setupMiddlewareMocks(t)
 	defer mocks.ctrl.Finish()
@@ -58,8 +73,7 @@ func TestUserCtxAuthMiddleware_MissingHeader(t *testing.T) {
 	})
 
 	err := handler(c)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing or invalid Authorization header")
+	assertUnauthorized(t, err, "missing or invalid Authorization header")
 }
 
 func TestUserCtxAuthMiddleware_InvalidBearerFormat(t *testing.T) {
@@ -78,8 +92,7 @@ func TestUserCtxAuthMiddleware_InvalidBearerFormat(t *testing.T) {
 	})
 
 	err := handler(c)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing or invalid Authorization header")
+	assertUnauthorized(t, err, "missing or invalid Authorization header")
 }
 
 func TestUserCtxAuthMiddleware_ShortHeader(t *testing.T) {
@@ -98,8 +111,7 @@ func TestUserCtxAuthMiddleware_ShortHeader(t *testing.T) {
 	})
 
 	err := handler(c)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "missing or invalid Authorization header")
+	assertUnauthorized(t, err, "missing or invalid Authorization header")
 }
 
 func TestUserCtxAuthMiddleware_APIToken_Valid(t *testing.T) {
@@ -166,8 +178,7 @@ func TestUserCtxAuthMiddleware_APIToken_Invalid(t *testing.T) {
 	})
 
 	err := handler(c)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid API token")
+	assertUnauthorized(t, err, "invalid API token")
 }
 
 func TestUserCtxAuthMiddleware_JWT_Valid(t *testing.T) {
@@ -230,8 +241,7 @@ func TestUserCtxAuthMiddleware_JWT_Invalid(t *testing.T) {
 	})
 
 	err := handler(c)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "invalid Authorization token")
+	assertUnauthorized(t, err, "invalid Authorization token")
 }
 
 func TestUserCtxAuthMiddleware_JWT_WithExtraRoles(t *testing.T) {
@@ -315,8 +325,7 @@ func TestUserCtxAuthMiddleware_JWT_UserNotFound(t *testing.T) {
 	})
 
 	err = handler(c)
-	assert.Error(t, err)
-	assert.Equal(t, service.ErrUserNotFound, err)
+	assertUnauthorized(t, err, service.ErrUserNotFound.Error())
 }
 
 func TestUserCtxAuthMiddleware_JWT_InactiveUser(t *testing.T) {
@@ -348,8 +357,7 @@ func TestUserCtxAuthMiddleware_JWT_InactiveUser(t *testing.T) {
 	})
 
 	err = handler(c)
-	assert.Error(t, err)
-	assert.Equal(t, service.ErrUserNotFound, err)
+	assertUnauthorized(t, err, service.ErrUserNotFound.Error())
 }
 
 func TestUserCtxAuthMiddleware_JWT_PermissionsError(t *testing.T) {
@@ -456,4 +464,97 @@ func TestSetUserContext(t *testing.T) {
 	assert.Equal(t, int64(1), result.UserID)
 	assert.Equal(t, "testuser", result.Username)
 	assert.Equal(t, types.AuthTypeBasic, result.AuthType)
+}
+
+func TestUserCtxAuthMiddleware_JWT_RefreshTokenRejected(t *testing.T) {
+	mocks, jwtConfig := setupMiddlewareMocks(t)
+	defer mocks.ctrl.Finish()
+
+	jwtService := jwt.NewServiceJWT(jwtConfig)
+	user := &model.User{ID: 1, Username: "testuser"}
+	tokenPair, err := jwtService.GenerateTokenPair(user, types.AuthTypeBasic, nil, nil)
+	assert.NoError(t, err)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	// A refresh token is a valid signature, but it must not authenticate a request:
+	// letting it through would call the handler with no subject in the context.
+	req.Header.Set("Authorization", "Bearer "+tokenPair.RefreshToken)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	middleware := UserCtxAuthMiddleware(jwtConfig, mocks.userService, mocks.roleService, mocks.tokenService)
+
+	handlerCalled := false
+	handler := middleware(func(c echo.Context) error {
+		handlerCalled = true
+		return c.String(http.StatusOK, "ok")
+	})
+
+	err = handler(c)
+	assertUnauthorized(t, err, "an access token is required")
+	assert.False(t, handlerCalled, "the handler must not run without a subject in the context")
+}
+
+func TestUserCtxAuthMiddleware_JWT_ExpiredToken(t *testing.T) {
+	mocks, jwtConfig := setupMiddlewareMocks(t)
+	defer mocks.ctrl.Finish()
+
+	expired := jwtgo.NewWithClaims(jwtgo.SigningMethodHS256, &jwt.Claims{
+		RegisteredClaims: jwtgo.RegisteredClaims{
+			ExpiresAt: jwtgo.NewNumericDate(time.Now().Add(-time.Minute)),
+			IssuedAt:  jwtgo.NewNumericDate(time.Now().Add(-time.Hour)),
+		},
+		UserID:    1,
+		Username:  "testuser",
+		AuthType:  types.AuthTypeBasic,
+		TokenType: types.TokenTypeAccess,
+	})
+	tokenString, err := expired.SignedString([]byte(jwtConfig.Secret))
+	assert.NoError(t, err)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenString)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	middleware := UserCtxAuthMiddleware(jwtConfig, mocks.userService, mocks.roleService, mocks.tokenService)
+	handler := middleware(func(c echo.Context) error {
+		return c.String(http.StatusOK, "ok")
+	})
+
+	// An expired token is the everyday case: it must read as 401 so the client
+	// knows to refresh, not as a server failure.
+	err = handler(c)
+	assertUnauthorized(t, err, "invalid Authorization token")
+}
+
+func TestUserCtxAuthMiddleware_JWT_UserWithoutActiveFlag(t *testing.T) {
+	mocks, jwtConfig := setupMiddlewareMocks(t)
+	defer mocks.ctrl.Finish()
+
+	jwtService := jwt.NewServiceJWT(jwtConfig)
+	user := &model.User{ID: 1, Username: "testuser"}
+	tokenPair, err := jwtService.GenerateTokenPair(user, types.AuthTypeBasic, nil, nil)
+	assert.NoError(t, err)
+
+	// Active is a nullable column: a row without it must be refused, not panic.
+	mocks.userService.EXPECT().
+		GetByID(gomock.Any(), int64(1)).
+		Return(&model.User{ID: 1, Username: "testuser", Active: nil}, nil)
+
+	e := echo.New()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+tokenPair.AccessToken)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	middleware := UserCtxAuthMiddleware(jwtConfig, mocks.userService, mocks.roleService, mocks.tokenService)
+	handler := middleware(func(c echo.Context) error {
+		return c.String(http.StatusOK, "ok")
+	})
+
+	err = handler(c)
+	assertUnauthorized(t, err, service.ErrUserNotFound.Error())
 }

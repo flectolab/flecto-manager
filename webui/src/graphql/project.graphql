@@ -54,3 +54,21 @@ mutation UpdateProject($namespaceCode: String!, $projectCode: String!, $input: U
 mutation DeleteProject($namespaceCode: String!, $projectCode: String!) {
   deleteProject(namespaceCode: $namespaceCode, projectCode: $projectCode)
 }
+
+mutation TruncateProjectRedirects($namespaceCode: String!, $projectCode: String!) {
+  truncateProjectRedirects(namespaceCode: $namespaceCode, projectCode: $projectCode) {
+    projectCode
+    version
+  }
+}
+
+mutation TruncateProjectPages($namespaceCode: String!, $projectCode: String!) {
+  truncateProjectPages(namespaceCode: $namespaceCode, projectCode: $projectCode) {
+    projectCode
+    version
+  }
+}
+
+mutation TruncateProjectActivity($namespaceCode: String!, $projectCode: String!) {
+  truncateProjectActivity(namespaceCode: $namespaceCode, projectCode: $projectCode)
+}

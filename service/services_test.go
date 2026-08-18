@@ -52,4 +52,5 @@ func TestNewServices(t *testing.T) {
 	assert.NotNil(t, services.PageDraft)
 	assert.NotNil(t, services.Agent)
 	assert.NotNil(t, services.ProjectDashboard)
+	assert.NotNil(t, services.Activity)
 }

@@ -62,6 +62,38 @@ func (r *mutationResolver) PublishProject(ctx context.Context, namespaceCode str
 	return r.ProjectService.Publish(ctx, namespaceCode, projectCode)
 }
 
+// TruncateProjectRedirects is the resolver for the truncateProjectRedirects field.
+func (r *mutationResolver) TruncateProjectRedirects(ctx context.Context, namespaceCode string, projectCode string) (*model.Project, error) {
+	userCtx := auth.GetUser(ctx)
+	// Guarded by project administration, not by redirect write: wiping a project is
+	// not something a project editor should be able to do by accident.
+	if !r.PermissionChecker.CanAdmin(userCtx.SubjectPermissions, model.AdminSectionProjects, model.ActionWrite) {
+		return nil, graph.ErrUnauthorized
+	}
+
+	return r.ProjectService.TruncateRedirects(ctx, namespaceCode, projectCode)
+}
+
+// TruncateProjectPages is the resolver for the truncateProjectPages field.
+func (r *mutationResolver) TruncateProjectPages(ctx context.Context, namespaceCode string, projectCode string) (*model.Project, error) {
+	userCtx := auth.GetUser(ctx)
+	if !r.PermissionChecker.CanAdmin(userCtx.SubjectPermissions, model.AdminSectionProjects, model.ActionWrite) {
+		return nil, graph.ErrUnauthorized
+	}
+
+	return r.ProjectService.TruncatePages(ctx, namespaceCode, projectCode)
+}
+
+// TruncateProjectActivity is the resolver for the truncateProjectActivity field.
+func (r *mutationResolver) TruncateProjectActivity(ctx context.Context, namespaceCode string, projectCode string) (int64, error) {
+	userCtx := auth.GetUser(ctx)
+	if !r.PermissionChecker.CanAdmin(userCtx.SubjectPermissions, model.AdminSectionProjects, model.ActionWrite) {
+		return 0, graph.ErrUnauthorized
+	}
+
+	return r.ActivityService.TruncateProject(ctx, namespaceCode, projectCode)
+}
+
 // CountRedirects is the resolver for the countRedirects field.
 func (r *projectResolver) CountRedirects(ctx context.Context, obj *model.Project) (int64, error) {
 	return r.ProjectService.CountRedirects(ctx, obj.NamespaceCode, obj.ProjectCode)
