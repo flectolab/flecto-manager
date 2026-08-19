@@ -8,6 +8,8 @@ import (
 	"github.com/flectolab/flecto-manager/context"
 	"github.com/flectolab/flecto-manager/http"
 	"github.com/flectolab/flecto-manager/metrics"
+	"github.com/flectolab/flecto-manager/scheduler"
+	"github.com/flectolab/flecto-manager/scheduler/task"
 	"github.com/spf13/cobra"
 )
 
@@ -21,10 +23,15 @@ func GetStartCmd(ctx *context.Context) *cobra.Command {
 
 func GetStartRunFn(ctx *context.Context) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
-		e, err := http.CreateServerHTTP(ctx)
+		e, services, err := http.CreateServerHTTP(ctx)
 		if err != nil {
 			return err
 		}
+
+		// Background work: one goroutine per task, independent of the HTTP server
+		sched := scheduler.New(ctx)
+		sched.Register(task.NewActivityPurge(ctx, services.Activity))
+		sched.Start()
 
 		// Start separate metrics server if configured
 		var metricsServer *buildinHttp.Server
@@ -43,7 +50,6 @@ func GetStartRunFn(ctx *context.Context) func(*cobra.Command, []string) error {
 						_ = metricsServer.Shutdown(stdContext.Background())
 					}
 					_ = e.Shutdown(stdContext.Background())
-					ctx.Logger.Info("graceful shutdown completed")
 				}
 			}
 		}()
@@ -53,6 +59,12 @@ func GetStartRunFn(ctx *context.Context) func(*cobra.Command, []string) error {
 		if errStart != nil && errStart != buildinHttp.ErrServerClosed {
 			panic(errStart)
 		}
+
+		// e.Start returns once the server is shutting down. Waiting here rather than
+		// in the signal goroutine is what makes it effective: the process exits
+		// through this path, so a purge in flight is not cut mid-batch.
+		sched.Stop()
+		ctx.Logger.Info("graceful shutdown completed")
 
 		return nil
 	}

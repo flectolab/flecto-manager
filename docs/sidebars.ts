@@ -11,6 +11,7 @@ const sidebars: SidebarsConfig = {
     },
     'configuration',
     'cli',
+    'monitoring',
     {
       type: 'category',
       label: 'Interface',
@@ -23,6 +24,7 @@ const sidebars: SidebarsConfig = {
         'features/redirects',
         'features/pages',
         'features/agents',
+        'features/activity',
       ],
     },
     {

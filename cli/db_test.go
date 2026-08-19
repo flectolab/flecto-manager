@@ -20,7 +20,7 @@ func TestGetDBCmd_HasSubcommands(t *testing.T) {
 	cmd := GetDBCmd(ctx)
 
 	subcommands := cmd.Commands()
-	assert.Len(t, subcommands, 3)
+	assert.Len(t, subcommands, 4)
 
 	// verify subcommand names
 	names := make([]string, len(subcommands))
@@ -30,6 +30,7 @@ func TestGetDBCmd_HasSubcommands(t *testing.T) {
 	assert.Contains(t, names, "init")
 	assert.Contains(t, names, "demo")
 	assert.Contains(t, names, "migrate")
+	assert.Contains(t, names, "activity-purge")
 }
 
 func TestGetDBCmd_InitSubcommand(t *testing.T) {

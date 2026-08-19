@@ -26,6 +26,7 @@ type Resolver struct {
 	PageDraftService        service.PageDraftService
 	AgentService            service.AgentService
 	ProjectDashboardService service.ProjectDashboardService
+	ActivityService         service.ActivityService
 	AgentConfig             config.AgentConfig
 }
 

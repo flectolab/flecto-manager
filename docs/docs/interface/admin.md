@@ -118,6 +118,29 @@ Projects belong to namespaces and contain redirects, pages, and agents.
 
 ![Project Form](./img/admin/project-form.png)
 
+
+### Truncate actions
+
+The project edit page offers three destructive actions, each scoped to that single
+namespace and project, and each asking for confirmation:
+
+| Action | Removes | Publishes |
+|--------|---------|-----------|
+| Truncate all redirects | Every redirect, published and draft alike | Yes |
+| Truncate all pages | Every page, published and draft alike | Yes |
+| Truncate activity journal | Every journal entry | No |
+
+**Redirects and pages are published straight away.** Agents only re-sync when the
+project version changes, so without that publish they would keep serving the
+redirects and pages that were just deleted. The response reports the new version.
+
+Truncating the journal does not publish anything, since the journal is not part of
+what agents serve.
+
+All three require **write access to the Projects admin section**, not project resource
+permissions: a user who can edit a project's redirects cannot wipe them. Each
+truncate is itself recorded in the [activity journal](../features/activity.md).
+
 ## API Tokens
 
 Generate API tokens for agents and automation.

@@ -4,6 +4,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { useCurrentProject } from '../hooks/useCurrentProject'
 import { GetProjectDashboardDocument } from '../generated/graphql'
 import { RelativeTime } from '../components/RelativeTime'
+import { RecentActivityEvents } from '../components/activity'
 
 export function Dashboard() {
   const { namespaceCode, projectCode, namespace, project } = useCurrentProject()
@@ -228,6 +229,10 @@ export function Dashboard() {
           </div>
         </Link>
       </div>
+
+      {namespaceCode && projectCode && (
+        <RecentActivityEvents namespaceCode={namespaceCode} projectCode={projectCode} />
+      )}
     </div>
   )
 }

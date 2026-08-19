@@ -33,6 +33,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const canReadRedirects = namespace && project ? canResource(namespace, project, ResourceType.Redirect, Action.Read) : false
   const canReadPages = namespace && project ? canResource(namespace, project, ResourceType.Page, Action.Read) : false
   const canReadAgents = namespace && project ? canResource(namespace, project, ResourceType.Agent, Action.Read) : false
+  const canReadAnyResource = namespace && project ? canResource(namespace, project, ResourceType.Any, Action.Read) : false
 
   const navigation: NavItem[] = [
     {
@@ -84,6 +85,17 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       path: 'agents',
       requiredResource: ResourceType.Agent,
     },
+    {
+      name: 'Activity',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+        </svg>
+      ),
+      path: 'activity',
+      // The journal spans every resource, so read access to any of them opens it
+      requiredResource: ResourceType.Any,
+    },
   ]
 
   // Filter navigation items based on permissions
@@ -101,6 +113,8 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
           return canReadPages
         case ResourceType.Agent:
           return canReadAgents
+        case ResourceType.Any:
+          return canReadAnyResource
         default:
           return false
       }

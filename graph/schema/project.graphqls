@@ -41,6 +41,20 @@ extend type Mutation {
     updateProject(namespaceCode: String!, projectCode: String!, input: UpdateProjectInput): Project!
     deleteProject(namespaceCode: String!, projectCode: String!): Boolean!
     publishProject(namespaceCode: String!, projectCode: String!): Project!
+    """
+    Removes every redirect of the project, published and draft alike, and publishes
+    the result so agents stop serving what was deleted. Returns the project with its
+    new version.
+    """
+    truncateProjectRedirects(namespaceCode: String!, projectCode: String!): Project!
+    """
+    Same for pages.
+    """
+    truncateProjectPages(namespaceCode: String!, projectCode: String!): Project!
+    """
+    Clears the activity journal of the project. Returns how many entries were removed.
+    """
+    truncateProjectActivity(namespaceCode: String!, projectCode: String!): Int64!
 }
 
 extend type Query {

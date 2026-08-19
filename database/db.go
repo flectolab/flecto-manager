@@ -28,6 +28,7 @@ var (
 		model.UserRole{},
 		model.Agent{},
 		model.Token{},
+		model.ActivityEvent{},
 	}
 )
 

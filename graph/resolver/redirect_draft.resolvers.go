@@ -72,6 +72,7 @@ func (r *mutationResolver) ImportRedirectDraft(ctx context.Context, namespaceCod
 	// Build import options
 	opts := service.ImportRedirectOptions{
 		Overwrite: true, // Default to true
+		Filename:  file.Filename,
 	}
 	if input != nil {
 		opts.Overwrite = input.Overwrite

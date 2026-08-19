@@ -17,6 +17,7 @@ The sidebar provides access to:
 - **Redirect Tester** - Test redirect rules
 - **Pages** - Manage static pages
 - **Agent Status** - Monitor connected agents
+- **Activity** - Who changed what in this project
 
 ## Dashboard
 
@@ -25,7 +26,8 @@ The project dashboard shows an overview of your project with key metrics:
 - Total redirects (published/drafts)
 - Total pages (published/drafts)
 - Connected agents status
-- Recent activity
+- Recent activity - the latest entries of the [activity journal](#activity), with a
+  link to the full page
 
 ![Project Dashboard](./img/project/dashboard.png)
 
@@ -107,6 +109,25 @@ Monitor agents connected to this project:
 - Last sync timestamp
 
 ![Agents](./img/project/agents.png)
+
+## Activity
+
+The activity page lists who changed what in this project, most recent first: created,
+modified and deleted redirects and pages, imports, discarded changes and publishes.
+
+Each row shows when it happened, who did it, the resource and action, and a one-line
+detail. A modification shows only the fields that changed, as `field: before -> after`.
+
+- **Filters** - Narrow by resource, action, or exact actor name
+- **View changes** - When a line is too long to fit, or carries more than a line can
+  hold such as import errors, a button opens the full detail in a modal
+- **API tokens** - A change made through an API token is marked with a `TOKEN` badge
+  next to the token name
+
+Read access to any resource of the project is enough to see the journal. Entries are
+purged automatically once a project exceeds its configured cap, so the journal is a
+recent history rather than a permanent record — see
+[Activity Journal](../features/activity.md) for what is kept and for how long.
 
 ## Draft System
 

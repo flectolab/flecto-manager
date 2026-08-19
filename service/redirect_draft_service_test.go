@@ -5,10 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/flectolab/flecto-manager/auth/usercontext"
 	"github.com/flectolab/flecto-manager/common/types"
 	appContext "github.com/flectolab/flecto-manager/context"
 	mockFlectoRepository "github.com/flectolab/flecto-manager/mocks/flecto-manager/repository"
 	"github.com/flectolab/flecto-manager/model"
+	appTypes "github.com/flectolab/flecto-manager/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
 	"gorm.io/driver/sqlite"
@@ -23,7 +25,7 @@ func setupRedirectDraftServiceTest(t *testing.T) (*gomock.Controller, *mockFlect
 	err = db.AutoMigrate(&model.Namespace{}, &model.Project{}, &model.Redirect{}, &model.RedirectDraft{})
 	assert.NoError(t, err)
 	mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-	svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+	svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 	return ctrl, mockRepo, db, svc
 }
 
@@ -86,7 +88,7 @@ func TestRedirectDraftService_GetByIDWithProject(t *testing.T) {
 
 func TestRedirectDraftService_Update(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
-		ctrl, mockRepo, _, svc := setupRedirectDraftServiceTest(t)
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
 		defer ctrl.Finish()
 
 		ctx := context.Background()
@@ -113,19 +115,32 @@ func TestRedirectDraftService_Update(t *testing.T) {
 
 		mockRepo.EXPECT().FindByID(ctx, int64(1)).Return(existingDraft, nil)
 		mockRepo.EXPECT().CheckSourceAvailability(ctx, "test-ns", "test-proj", "/new-source", &oldRedirectID, gomock.Any()).Return(true, nil)
-		mockRepo.EXPECT().Update(ctx, gomock.Any()).DoAndReturn(func(ctx context.Context, draft *model.RedirectDraft) error {
-			assert.Equal(t, "/new-source", draft.NewRedirect.Source)
-			return nil
-		})
 
 		result, err := svc.Update(ctx, 1, newRedirect)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "/new-source", result.NewRedirect.Source)
+
+		// The draft is saved through the transaction that also writes the activity event
+		var stored model.RedirectDraft
+		assert.NoError(t, db.First(&stored, int64(1)).Error)
+		assert.Equal(t, "/new-source", stored.NewRedirect.Source)
+
+		// Editing a pending change is recorded as an update, before is the state it replaced
+		event := lastActivityEvent(t, db)
+		assert.NotNil(t, event)
+		assert.Equal(t, model.ActivityResourceRedirect, event.Resource)
+		assert.Equal(t, model.ActivityActionUpdate, event.Action)
+		assert.Equal(t, oldRedirectID, *event.ResourceID)
+		assert.JSONEq(t,
+			`{"before":{"type":"BASIC","source":"/old-source","target":"/old-target","status":"MOVED_PERMANENT"},`+
+				`"after":{"type":"BASIC","source":"/new-source","target":"/new-target","status":"MOVED_PERMANENT"}}`,
+			string(event.Data),
+		)
 	})
 
 	t.Run("success without source change", func(t *testing.T) {
-		ctrl, mockRepo, _, svc := setupRedirectDraftServiceTest(t)
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
 		defer ctrl.Finish()
 
 		ctx := context.Background()
@@ -152,12 +167,12 @@ func TestRedirectDraftService_Update(t *testing.T) {
 
 		mockRepo.EXPECT().FindByID(ctx, int64(1)).Return(existingDraft, nil)
 		// No CheckSourceAvailability call because source didn't change
-		mockRepo.EXPECT().Update(ctx, gomock.Any()).Return(nil)
 
 		result, err := svc.Update(ctx, 1, newRedirect)
 
 		assert.NoError(t, err)
 		assert.Equal(t, "/new-target", result.NewRedirect.Target)
+		assert.Equal(t, int64(1), countActivityEvents(t, db))
 	})
 
 	t.Run("error source already used", func(t *testing.T) {
@@ -304,8 +319,24 @@ func TestRedirectDraftService_Update(t *testing.T) {
 	})
 
 	t.Run("update error", func(t *testing.T) {
-		ctrl, mockRepo, _, svc := setupRedirectDraftServiceTest(t)
+		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
+
+		db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+		assert.NoError(t, err)
+		err = db.AutoMigrate(&model.Namespace{}, &model.Project{}, &model.Redirect{}, &model.RedirectDraft{})
+		assert.NoError(t, err)
+
+		// Fail the draft save inside the transaction
+		db.Callback().Create().Before("gorm:create").Register("fail_draft_save", func(d *gorm.DB) {
+			if d.Statement.Table == "redirect_drafts" {
+				d.Error = errors.New("update failed")
+			}
+		})
+
+		mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
+		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
+		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		existingDraft := &model.RedirectDraft{
@@ -320,17 +351,17 @@ func TestRedirectDraftService_Update(t *testing.T) {
 			Target: "/target",
 			Status: types.RedirectStatusMovedPermanent,
 		}
-		expectedErr := errors.New("update failed")
 
 		mockRepo.EXPECT().FindByID(ctx, int64(1)).Return(existingDraft, nil)
 		mockRepo.EXPECT().CheckSourceAvailability(ctx, "test-ns", "test-proj", "/source", (*int64)(nil), gomock.Any()).Return(true, nil)
-		mockRepo.EXPECT().Update(ctx, gomock.Any()).Return(expectedErr)
 
 		result, err := svc.Update(ctx, 1, newRedirect)
 
 		assert.Error(t, err)
-		assert.Equal(t, expectedErr, err)
+		assert.Contains(t, err.Error(), "update failed")
 		assert.Nil(t, result)
+		// The activity event must not survive the failed change
+		assert.Zero(t, countActivityEvents(t, db))
 	})
 }
 
@@ -543,7 +574,7 @@ func TestRedirectDraftService_Create(t *testing.T) {
 
 		mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		newRedirect := &types.Redirect{
@@ -581,7 +612,7 @@ func TestRedirectDraftService_Create(t *testing.T) {
 
 		mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		newRedirect := &types.Redirect{
@@ -823,7 +854,7 @@ func TestRedirectDraftService_Delete(t *testing.T) {
 
 		mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		mockRepo.EXPECT().FindByID(ctx, draft.ID).Return(draft, nil)
@@ -867,7 +898,7 @@ func TestRedirectDraftService_Delete(t *testing.T) {
 
 		mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 		mockRepo.EXPECT().FindByID(ctx, draft.ID).Return(draft, nil)
@@ -1047,7 +1078,7 @@ func TestRedirectDraftService_Rollback(t *testing.T) {
 
 		mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 
@@ -1076,7 +1107,7 @@ func TestRedirectDraftService_Rollback(t *testing.T) {
 
 		mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
 		mockRepo.EXPECT().GetTx(gomock.Any()).Return(db).AnyTimes()
-		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+		svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, db))
 
 		ctx := context.Background()
 
@@ -1093,7 +1124,7 @@ func TestRedirectDraftService_GetTx(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
-	svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+	svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, nil))
 
 	ctx := context.Background()
 	mockRepo.EXPECT().GetTx(ctx).Return(nil)
@@ -1107,11 +1138,242 @@ func TestRedirectDraftService_GetQuery(t *testing.T) {
 	defer ctrl.Finish()
 
 	mockRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
-	svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo)
+	svc := NewRedirectDraftService(appContext.TestContext(nil), mockRepo, newTestActivityService(t, nil))
 
 	ctx := context.Background()
 	mockRepo.EXPECT().GetQuery(ctx).Return(nil)
 
 	result := svc.GetQuery(ctx)
 	assert.Nil(t, result)
+}
+
+func TestRedirectDraftService_ActivityEvents(t *testing.T) {
+	publishedRedirect := func(t *testing.T, db *gorm.DB) *model.Redirect {
+		t.Helper()
+		published := true
+		redirect := &model.Redirect{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			IsPublished:   &published,
+			Redirect: &types.Redirect{
+				Type:   types.RedirectTypeBasic,
+				Source: "/live",
+				Target: "/live-target",
+				Status: types.RedirectStatusMovedPermanent,
+			},
+		}
+		assert.NoError(t, db.Create(redirect).Error)
+		return redirect
+	}
+
+	newRedirect := &types.Redirect{
+		Type:   types.RedirectTypeBasic,
+		Source: "/source",
+		Target: "/target",
+		Status: types.RedirectStatusMovedPermanent,
+	}
+
+	t.Run("creating a redirect records a CREATE with no before", func(t *testing.T) {
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		mockRepo.EXPECT().CheckSourceAvailability(ctx, "test-ns", "test-proj", "/source", (*int64)(nil), (*int64)(nil)).Return(true, nil)
+		mockRepo.EXPECT().FindByID(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, id int64) (*model.RedirectDraft, error) {
+			var draft model.RedirectDraft
+			return &draft, db.First(&draft, id).Error
+		})
+
+		result, err := svc.Create(ctx, "test-ns", "test-proj", nil, newRedirect)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.NotNil(t, event)
+		assert.Equal(t, model.ActivityResourceRedirect, event.Resource)
+		assert.Equal(t, model.ActivityActionCreate, event.Action)
+		assert.Equal(t, *result.OldRedirectID, *event.ResourceID)
+		assert.Equal(t, model.ActivityActorSystem, event.Actor)
+		assert.JSONEq(t,
+			`{"after":{"type":"BASIC","source":"/source","target":"/target","status":"MOVED_PERMANENT"}}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("updating a published redirect records its previous state", func(t *testing.T) {
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		existing := publishedRedirect(t, db)
+
+		mockRepo.EXPECT().CheckSourceAvailability(ctx, "test-ns", "test-proj", "/source", &existing.ID, (*int64)(nil)).Return(true, nil)
+		mockRepo.EXPECT().FindByID(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, id int64) (*model.RedirectDraft, error) {
+			var draft model.RedirectDraft
+			return &draft, db.First(&draft, id).Error
+		})
+
+		_, err := svc.Create(ctx, "test-ns", "test-proj", &existing.ID, newRedirect)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityActionUpdate, event.Action)
+		assert.Equal(t, existing.ID, *event.ResourceID)
+		assert.JSONEq(t,
+			`{"before":{"type":"BASIC","source":"/live","target":"/live-target","status":"MOVED_PERMANENT"},`+
+				`"after":{"type":"BASIC","source":"/source","target":"/target","status":"MOVED_PERMANENT"}}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("deleting a redirect records a DELETE with no after", func(t *testing.T) {
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		existing := publishedRedirect(t, db)
+
+		mockRepo.EXPECT().FindByID(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, id int64) (*model.RedirectDraft, error) {
+			var draft model.RedirectDraft
+			return &draft, db.First(&draft, id).Error
+		})
+
+		_, err := svc.Create(ctx, "test-ns", "test-proj", &existing.ID, nil)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityActionDelete, event.Action)
+		assert.JSONEq(t,
+			`{"before":{"type":"BASIC","source":"/live","target":"/live-target","status":"MOVED_PERMANENT"}}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("discarding one draft records a single scoped rollback", func(t *testing.T) {
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		existing := publishedRedirect(t, db)
+		draft := &model.RedirectDraft{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			ChangeType:    model.DraftChangeTypeUpdate,
+			OldRedirectID: &existing.ID,
+			NewRedirect:   newRedirect,
+		}
+		assert.NoError(t, db.Create(draft).Error)
+
+		mockRepo.EXPECT().FindByID(ctx, draft.ID).Return(draft, nil)
+
+		ok, err := svc.Delete(ctx, draft.ID)
+		assert.NoError(t, err)
+		assert.True(t, ok)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityActionRollback, event.Action)
+		assert.Equal(t, existing.ID, *event.ResourceID)
+		assert.JSONEq(t,
+			`{"scope":"SINGLE","changeType":"UPDATE",`+
+				`"entry":{"type":"BASIC","source":"/source","target":"/target","status":"MOVED_PERMANENT"}}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("discarding a delete draft shows the redirect it would have removed", func(t *testing.T) {
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := context.Background()
+		existing := publishedRedirect(t, db)
+		// A delete draft has no new version, the entry can only come from the old one
+		draft := &model.RedirectDraft{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "test-proj",
+			ChangeType:    model.DraftChangeTypeDelete,
+			OldRedirectID: &existing.ID,
+			OldRedirect:   existing,
+		}
+		assert.NoError(t, db.Create(draft).Error)
+
+		mockRepo.EXPECT().FindByID(ctx, draft.ID).Return(draft, nil)
+
+		_, err := svc.Delete(ctx, draft.ID)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.JSONEq(t,
+			`{"scope":"SINGLE","changeType":"DELETE",`+
+				`"entry":{"type":"BASIC","source":"/live","target":"/live-target","status":"MOVED_PERMANENT"}}`,
+			string(event.Data),
+		)
+	})
+
+	t.Run("project rollback records the discarded counts", func(t *testing.T) {
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		for _, changeType := range []model.DraftChangeType{
+			model.DraftChangeTypeCreate,
+			model.DraftChangeTypeCreate,
+			model.DraftChangeTypeUpdate,
+			model.DraftChangeTypeDelete,
+		} {
+			assert.NoError(t, db.Create(&model.RedirectDraft{
+				NamespaceCode: "test-ns",
+				ProjectCode:   "test-proj",
+				ChangeType:    changeType,
+			}).Error)
+		}
+		// A draft of another project must not be counted
+		assert.NoError(t, db.Create(&model.RedirectDraft{
+			NamespaceCode: "test-ns",
+			ProjectCode:   "other-proj",
+			ChangeType:    model.DraftChangeTypeCreate,
+		}).Error)
+
+		ok, err := svc.Rollback(context.Background(), "test-ns", "test-proj")
+		assert.NoError(t, err)
+		assert.True(t, ok)
+		assert.NotNil(t, mockRepo)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, model.ActivityActionRollback, event.Action)
+		assert.Nil(t, event.ResourceID)
+		assert.JSONEq(t, `{"scope":"PROJECT","discarded":{"create":2,"update":1,"delete":1}}`, string(event.Data))
+	})
+
+	t.Run("rollback with nothing pending records no event", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ok, err := svc.Rollback(context.Background(), "test-ns", "test-proj")
+		assert.NoError(t, err)
+		assert.True(t, ok)
+		assert.Zero(t, countActivityEvents(t, db))
+	})
+
+	t.Run("the event carries the acting user", func(t *testing.T) {
+		ctrl, mockRepo, db, svc := setupRedirectDraftServiceTest(t)
+		defer ctrl.Finish()
+
+		ctx := usercontext.SetUserContext(context.Background(), &usercontext.UserContext{
+			UserID:   42,
+			Username: "alice",
+			AuthType: appTypes.AuthTypeBasic,
+		})
+
+		mockRepo.EXPECT().CheckSourceAvailability(ctx, "test-ns", "test-proj", "/source", (*int64)(nil), (*int64)(nil)).Return(true, nil)
+		mockRepo.EXPECT().FindByID(ctx, gomock.Any()).DoAndReturn(func(_ context.Context, id int64) (*model.RedirectDraft, error) {
+			var draft model.RedirectDraft
+			return &draft, db.First(&draft, id).Error
+		})
+
+		_, err := svc.Create(ctx, "test-ns", "test-proj", nil, newRedirect)
+		assert.NoError(t, err)
+
+		event := lastActivityEvent(t, db)
+		assert.Equal(t, "alice", event.Actor)
+		assert.Equal(t, int64(42), *event.UserID)
+		assert.Equal(t, appTypes.AuthTypeBasic, event.AuthType)
+	})
 }

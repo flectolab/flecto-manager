@@ -44,6 +44,11 @@ export const ResourceType = {
   Page: 'page',
   Agent: 'agent',
   All: '*',
+  // Any matches a permission on whichever resource, mirroring the backend's
+  // ResourceTypeAny. It is a query-side wildcard for features that span several
+  // resources, like the activity journal, not a permission to grant: it is
+  // deliberately absent from RESOURCE_TYPE_OPTIONS.
+  Any: 'any',
 } as const
 
 export type ResourceTypeType = (typeof ResourceType)[keyof typeof ResourceType]
@@ -103,7 +108,8 @@ export function usePermissions() {
     return permissions.resources.some((p) => {
       const nsMatch = p.namespace === '*' || p.namespace === namespace
       const projMatch = p.project === '*' || p.project === project
-      const resourceMatch = p.resource === '*' || p.resource === resource
+      const resourceMatch =
+        p.resource === '*' || p.resource === resource || resource === ResourceType.Any
       const actionMatch = p.action === '*' || p.action === action
       return nsMatch && projMatch && resourceMatch && actionMatch
     })

@@ -102,6 +102,18 @@ models:
   AgentList:
     model: github.com/flectolab/flecto-manager/model.AgentList
 
+  # Activity types
+  JSON:
+    model: github.com/flectolab/flecto-manager/model.ActivityData
+  ActivityEvent:
+    model: github.com/flectolab/flecto-manager/model.ActivityEvent
+  ActivityEventList:
+    model: github.com/flectolab/flecto-manager/model.ActivityEventList
+  ActivityResource:
+    model: github.com/flectolab/flecto-manager/model.ActivityResource
+  ActivityAction:
+    model: github.com/flectolab/flecto-manager/model.ActivityAction
+
   # Types common
   PaginationInput:
     model: github.com/flectolab/flecto-manager/common/types.PaginationInput

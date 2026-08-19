@@ -405,3 +405,60 @@ func parseKey(key string) (string, string) {
 	}
 	return key, ""
 }
+
+func TestInitSchedulerTask(t *testing.T) {
+	task := "init-probe"
+	t.Cleanup(func() {
+		SchedulerTaskRunsTotal.DeleteLabelValues(task, StatusSuccess)
+		SchedulerTaskRunsTotal.DeleteLabelValues(task, StatusError)
+	})
+
+	// Both outcomes must exist before the first run: an absent series makes an
+	// alerting rule match nothing, which looks exactly like a healthy task.
+	InitSchedulerTask(task)
+
+	assert.Equal(t, float64(0), testutil.ToFloat64(SchedulerTaskRunsTotal.WithLabelValues(task, StatusSuccess)))
+	assert.Equal(t, float64(0), testutil.ToFloat64(SchedulerTaskRunsTotal.WithLabelValues(task, StatusError)))
+}
+
+func TestRecordSchedulerRun(t *testing.T) {
+	t.Run("success counts and stamps the last success", func(t *testing.T) {
+		task := "record-success"
+		t.Cleanup(func() {
+			SchedulerTaskRunsTotal.DeleteLabelValues(task, StatusSuccess)
+			SchedulerTaskLastSuccessTimestamp.DeleteLabelValues(task)
+		})
+
+		RecordSchedulerRun(task, 250*time.Millisecond, nil)
+
+		assert.Equal(t, float64(1), testutil.ToFloat64(SchedulerTaskRunsTotal.WithLabelValues(task, StatusSuccess)))
+		assert.Positive(t, testutil.ToFloat64(SchedulerTaskLastSuccessTimestamp.WithLabelValues(task)))
+	})
+
+	t.Run("failure counts as an error and leaves the last success untouched", func(t *testing.T) {
+		task := "record-failure"
+		t.Cleanup(func() { SchedulerTaskRunsTotal.DeleteLabelValues(task, StatusError) })
+
+		RecordSchedulerRun(task, time.Second, errors.New("nope"))
+
+		assert.Equal(t, float64(1), testutil.ToFloat64(SchedulerTaskRunsTotal.WithLabelValues(task, StatusError)))
+		assert.Equal(t, float64(0), testutil.ToFloat64(SchedulerTaskRunsTotal.WithLabelValues(task, StatusSuccess)))
+	})
+
+	t.Run("a recovered task stops incrementing errors", func(t *testing.T) {
+		task := "record-recovery"
+		t.Cleanup(func() {
+			SchedulerTaskRunsTotal.DeleteLabelValues(task, StatusSuccess)
+			SchedulerTaskRunsTotal.DeleteLabelValues(task, StatusError)
+			SchedulerTaskLastSuccessTimestamp.DeleteLabelValues(task)
+		})
+
+		RecordSchedulerRun(task, time.Second, errors.New("nope"))
+		RecordSchedulerRun(task, time.Second, nil)
+
+		// The error counter keeps its history - that is the point of a counter - so
+		// an alert must look at an increase over a window, not at the raw value.
+		assert.Equal(t, float64(1), testutil.ToFloat64(SchedulerTaskRunsTotal.WithLabelValues(task, StatusError)))
+		assert.Equal(t, float64(1), testutil.ToFloat64(SchedulerTaskRunsTotal.WithLabelValues(task, StatusSuccess)))
+	})
+}

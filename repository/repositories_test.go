@@ -31,4 +31,5 @@ func TestNewRepositories(t *testing.T) {
 	assert.NotNil(t, repos.PageDraft)
 	assert.NotNil(t, repos.Agent)
 	assert.NotNil(t, repos.Token)
+	assert.NotNil(t, repos.ActivityEvent)
 }

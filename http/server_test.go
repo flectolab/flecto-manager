@@ -48,7 +48,7 @@ func setupTestServices(t *testing.T, ctx *appContext.Context) (*service.Services
 func TestCreateServerHTTP(t *testing.T) {
 	ctx := setupTestContext(t)
 
-	e, err := CreateServerHTTP(ctx)
+	e, _, err := CreateServerHTTP(ctx)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, e)
@@ -212,7 +212,7 @@ func TestCreateServerHTTP_WithDatabaseConfig(t *testing.T) {
 	ctx.Config.Auth.JWT.AccessTokenTTL = 15 * time.Minute
 	ctx.Config.Auth.JWT.RefreshTokenTTL = 24 * time.Hour
 
-	e, err := CreateServerHTTP(ctx)
+	e, _, err := CreateServerHTTP(ctx)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, e)
@@ -314,7 +314,7 @@ func TestCreateServerHTTP_WithMetricsEnabled(t *testing.T) {
 	ctx.Config.Metrics.Listen = ""
 	ctx.Config.Agent.OfflineThreshold = 6 * time.Hour
 
-	e, err := CreateServerHTTP(ctx)
+	e, _, err := CreateServerHTTP(ctx)
 
 	assert.NoError(t, err)
 	assert.NotNil(t, e)

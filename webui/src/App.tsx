@@ -14,6 +14,7 @@ import { Redirects } from './pages/Redirects'
 import { RedirectForm } from './pages/RedirectForm'
 import { RedirectTesterPage } from './pages/RedirectTesterPage'
 import { Agents } from './pages/Agents'
+import { Activity } from './pages/Activity'
 import { Login } from './pages/Login'
 import { LoginCallback } from './pages/LoginCallback'
 import { Profile } from './pages/Profile'
@@ -43,6 +44,7 @@ function ProjectRoutes() {
         <Route path="pages/add" element={<PageForm />} />
         <Route path="pages/edit/:id" element={<PageForm />} />
         <Route path="agents" element={<Agents />} />
+        <Route path="activity" element={<Activity />} />
       </Routes>
     </Layout>
   )

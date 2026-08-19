@@ -90,6 +90,21 @@ flecto-manager db demo -c /etc/flecto/manager.yaml
 - 39 sample redirects
 - 1 sample page (`robots.txt`)
 
+#### db activity-purge
+
+Trim the [activity journal](./features/activity.md) of every project down to
+`activity.max_events_per_project`, immediately.
+
+```bash
+flecto-manager db activity-purge -c /etc/flecto/manager.yaml
+```
+
+The server already runs this on a schedule, so the command is only needed to apply a
+lowered cap right away rather than waiting for the next `activity.purge_interval`.
+
+It fails if `activity.max_events_per_project` is not set, since there would be no cap
+to purge against.
+
 #### db migrate apply
 
 Apply pending database migrations.
@@ -187,6 +202,9 @@ flecto-manager validate -c config.yaml    # Validate configuration
 flecto-manager db migrate apply -c config.yaml  # Apply migrations
 flecto-manager db init -c config.yaml           # Initialize default data
 flecto-manager db demo -c config.yaml           # (Optional) Add demo data
+
+# Database - Maintenance
+flecto-manager db activity-purge -c config.yaml # Trim the activity journal now
 
 # Database - Migrations
 flecto-manager db migrate status -c config.yaml     # Show migration status

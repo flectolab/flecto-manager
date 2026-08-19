@@ -18,6 +18,10 @@ func TestDefaultConfig(t *testing.T) {
 			Agent: AgentConfig{
 				OfflineThreshold: 6 * time.Hour,
 			},
+			Activity: ActivityConfig{
+				MaxEventsPerProject: 1000,
+				PurgeInterval:       time.Hour,
+			},
 			Auth: AuthConfig{
 				JWT: JWTConfig{
 					Secret:          "",

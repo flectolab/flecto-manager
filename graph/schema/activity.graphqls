@@ -1,0 +1,60 @@
+# Raw JSON payload of an activity event. Its shape is given by the (resource, action)
+# pair, which is also what the front-end keys its renderers on.
+scalar JSON
+
+enum ActivityResource {
+    REDIRECT
+    PAGE
+    PROJECT
+    ACTIVITY
+}
+
+enum ActivityAction {
+    CREATE
+    UPDATE
+    DELETE
+    IMPORT
+    ROLLBACK
+    PUBLISH
+    TRUNCATE
+}
+
+type ActivityEvent {
+    id: Int64!
+    resource: ActivityResource!
+    action: ActivityAction!
+    # userID is null for an API token, and for a user deleted since the event
+    # happened. actor always keeps the name that acted.
+    userID: Int64
+    actor: String!
+    authType: String!
+    # resourceID is the redirect or page id for a single-entry event, null for the
+    # aggregated ones (import, project rollback, publish).
+    resourceID: Int64
+    data: JSON
+    occurredAt: DateTime!
+}
+
+type ActivityEventList {
+    items: [ActivityEvent!]!
+    total: Int!
+    limit: Int!
+    offset: Int!
+}
+
+input ActivityEventFilter {
+    resource: ActivityResource
+    action: ActivityAction
+    actor: String
+    from: DateTime
+    to: DateTime
+}
+
+extend type Query {
+    projectActivityEvents(
+        namespaceCode: String!
+        projectCode: String!
+        pagination: PaginationInput
+        filter: ActivityEventFilter
+    ): ActivityEventList!
+}

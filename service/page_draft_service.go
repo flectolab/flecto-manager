@@ -36,17 +36,20 @@ type pageDraftService struct {
 	ctx      *appContext.Context
 	repo     repository.PageDraftRepository
 	pageRepo repository.PageRepository
+	activity ActivityService
 }
 
 func NewPageDraftService(
 	ctx *appContext.Context,
 	repo repository.PageDraftRepository,
 	pageRepo repository.PageRepository,
+	activity ActivityService,
 ) PageDraftService {
 	return &pageDraftService{
 		ctx:      ctx,
 		repo:     repo,
 		pageRepo: pageRepo,
+		activity: activity,
 	}
 }
 
@@ -116,7 +119,20 @@ func (s *pageDraftService) Create(ctx context.Context, namespaceCode, projectCod
 		}
 	}
 
+	// The recorded action is what the user did, which the draft change type carries:
+	// a draft targeting an existing page is an update, one without a new version is
+	// a deletion.
+	activityAction := model.ActivityActionCreate
+	switch pageDraft.ChangeType {
+	case model.DraftChangeTypeUpdate:
+		activityAction = model.ActivityActionUpdate
+	case model.DraftChangeTypeDelete:
+		activityAction = model.ActivityActionDelete
+	}
+
 	err := s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
+		var before *model.PageSnapshot
+
 		if pageDraft.ChangeType == model.DraftChangeTypeCreate {
 			page := &model.Page{
 				NamespaceCode: namespaceCode,
@@ -128,11 +144,17 @@ func (s *pageDraftService) Create(ctx context.Context, namespaceCode, projectCod
 			}
 			pageDraft.OldPageID = types.Ptr(page.ID)
 			pageDraft.OldPage = page
+		} else {
+			var errBefore error
+			if before, errBefore = loadPageSnapshot(tx, *pageDraft.OldPageID); errBefore != nil {
+				return errBefore
+			}
 		}
+
 		if err := tx.Create(pageDraft).Error; err != nil {
 			return err
 		}
-		return nil
+		return s.recordChange(ctx, tx, pageDraft, activityAction, before)
 	})
 	if err != nil {
 		return nil, err
@@ -187,20 +209,73 @@ func (s *pageDraftService) Update(ctx context.Context, id int64, newPage *common
 		}
 	}
 
+	// Editing a pending change is an update whatever the draft change type is:
+	// even a pending creation already existed as far as the journal is concerned.
+	before := model.NewPageSnapshot(draft.NewPage, draft.ContentSize)
+
 	draft.NewPage = newPage
 	draft.ContentSize = contentSize
 
-	if err = s.repo.Update(ctx, draft); err != nil {
+	err = s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
+		if errSave := tx.Save(draft).Error; errSave != nil {
+			return errSave
+		}
+		return s.recordChange(ctx, tx, draft, model.ActivityActionUpdate, before)
+	})
+
+	if err != nil {
 		return nil, err
 	}
 
 	return draft, nil
 }
 
+// loadPageSnapshot reads the activity projection of a page without its content: a
+// page can weigh up to page.size_limit, which must never be pulled into memory
+// just to write a journal entry.
+func loadPageSnapshot(tx *gorm.DB, pageID int64) (*model.PageSnapshot, error) {
+	var page model.Page
+	err := tx.Select("id", "type", "path", "content_type", "content_size").
+		First(&page, pageID).Error
+	if err != nil {
+		return nil, err
+	}
+	return model.NewPageSnapshot(page.Page, page.ContentSize), nil
+}
+
+// recordChange records a pending change on a single page. before is the state the
+// change replaces, nil when there is none.
+func (s *pageDraftService) recordChange(
+	ctx context.Context,
+	tx *gorm.DB,
+	draft *model.PageDraft,
+	action model.ActivityAction,
+	before *model.PageSnapshot,
+) error {
+	return s.activity.Record(ctx, tx, model.ActivityInput{
+		NamespaceCode: draft.NamespaceCode,
+		ProjectCode:   draft.ProjectCode,
+		Resource:      model.ActivityResourcePage,
+		Action:        action,
+		ResourceID:    draft.OldPageID,
+		Data: model.ActivityChange[model.PageSnapshot]{
+			Before: before,
+			After:  model.NewPageSnapshot(draft.NewPage, draft.ContentSize),
+		},
+	})
+}
+
 func (s *pageDraftService) Delete(ctx context.Context, id int64) (bool, error) {
 	draft, err := s.repo.FindByID(ctx, id)
 	if err != nil {
 		return false, err
+	}
+
+	// Discarding a draft cancels a pending change: a rollback limited to one entry.
+	entry := model.NewPageSnapshot(draft.NewPage, draft.ContentSize)
+	if entry == nil && draft.OldPage != nil {
+		// A delete draft has no new version, show the page it was going to remove.
+		entry = model.NewPageSnapshot(draft.OldPage.Page, draft.OldPage.ContentSize)
 	}
 
 	err = s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
@@ -212,7 +287,18 @@ func (s *pageDraftService) Delete(ctx context.Context, id int64) (bool, error) {
 				return err
 			}
 		}
-		return nil
+		return s.activity.Record(ctx, tx, model.ActivityInput{
+			NamespaceCode: draft.NamespaceCode,
+			ProjectCode:   draft.ProjectCode,
+			Resource:      model.ActivityResourcePage,
+			Action:        model.ActivityActionRollback,
+			ResourceID:    draft.OldPageID,
+			Data: model.ActivityRollback[model.PageSnapshot]{
+				Scope:      model.ActivityRollbackScopeSingle,
+				ChangeType: &draft.ChangeType,
+				Entry:      entry,
+			},
+		})
 	})
 	if err != nil {
 		return false, err
@@ -225,6 +311,13 @@ func (s *pageDraftService) Rollback(ctx context.Context, namespaceCode, projectC
 	s.ctx.Logger.Info("page drafts rollback started", "namespace", namespaceCode, "project", projectCode)
 
 	err := s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
+		// Count before deleting, that is the only thing the activity event can report
+		// about a bulk discard.
+		discarded, errCount := countDraftsByChangeType(tx, &model.PageDraft{}, namespaceCode, projectCode)
+		if errCount != nil {
+			return errCount
+		}
+
 		if err := tx.Where(fmt.Sprintf("%s = ? AND %s = ?", model.ColumnNamespaceCode, model.ColumnProjectCode), namespaceCode, projectCode).
 			Delete(&model.PageDraft{}).Error; err != nil {
 			return err
@@ -235,7 +328,21 @@ func (s *pageDraftService) Rollback(ctx context.Context, namespaceCode, projectC
 			return err
 		}
 
-		return nil
+		// A rollback with nothing pending is a no-op, not worth a journal entry.
+		if discarded.IsEmpty() {
+			return nil
+		}
+
+		return s.activity.Record(ctx, tx, model.ActivityInput{
+			NamespaceCode: namespaceCode,
+			ProjectCode:   projectCode,
+			Resource:      model.ActivityResourcePage,
+			Action:        model.ActivityActionRollback,
+			Data: model.ActivityRollback[model.PageSnapshot]{
+				Scope:     model.ActivityRollbackScopeProject,
+				Discarded: discarded,
+			},
+		})
 	})
 	if err != nil {
 		s.ctx.Logger.Error("page drafts rollback failed", "namespace", namespaceCode, "project", projectCode, "error", err)
