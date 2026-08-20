@@ -15,7 +15,7 @@ type PageService interface {
 	GetQuery(ctx context.Context) *gorm.DB
 	GetByID(ctx context.Context, namespaceCode, projectCode string, pageID int64) (*model.Page, error)
 	FindByProject(ctx context.Context, namespaceCode, projectCode string) ([]model.Page, error)
-	FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput) ([]model.Page, int64, error)
+	FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput, afterID *int64) ([]model.Page, int64, error)
 	Search(ctx context.Context, query *gorm.DB) ([]model.Page, error)
 	SearchPaginate(ctx context.Context, pagination *commonTypes.PaginationInput, query *gorm.DB) (*model.PageList, error)
 }
@@ -48,8 +48,8 @@ func (s *pageService) FindByProject(ctx context.Context, namespaceCode, projectC
 	return s.repo.FindByProject(ctx, namespaceCode, projectCode)
 }
 
-func (s *pageService) FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput) ([]model.Page, int64, error) {
-	return s.repo.FindByProjectPublished(ctx, namespaceCode, projectCode, pagination.GetLimit(), pagination.GetOffset())
+func (s *pageService) FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput, afterID *int64) ([]model.Page, int64, error) {
+	return s.repo.FindByProjectPublished(ctx, namespaceCode, projectCode, pagination.GetLimit(), pagination.GetOffset(), afterID)
 }
 
 func (s *pageService) Search(ctx context.Context, query *gorm.DB) ([]model.Page, error) {

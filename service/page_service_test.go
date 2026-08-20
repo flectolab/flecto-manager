@@ -135,10 +135,10 @@ func TestPageService_FindByProjectPublished(t *testing.T) {
 		}
 
 		mockPageRepo.EXPECT().
-			FindByProjectPublished(ctx, "test-ns", "test-proj", 10, 5).
+			FindByProjectPublished(ctx, "test-ns", "test-proj", 10, 5, nil).
 			Return(expectedPages, int64(50), nil)
 
-		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination)
+		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination, nil)
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedPages, result)
@@ -156,10 +156,10 @@ func TestPageService_FindByProjectPublished(t *testing.T) {
 		}
 
 		mockPageRepo.EXPECT().
-			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset).
+			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset, nil).
 			Return(expectedPages, int64(1), nil)
 
-		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination)
+		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination, nil)
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedPages, result)
@@ -175,10 +175,10 @@ func TestPageService_FindByProjectPublished(t *testing.T) {
 		expectedErr := errors.New("database error")
 
 		mockPageRepo.EXPECT().
-			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset).
+			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset, nil).
 			Return(nil, int64(0), expectedErr)
 
-		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination)
+		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination, nil)
 
 		assert.Error(t, err)
 		assert.Equal(t, expectedErr, err)
@@ -194,10 +194,10 @@ func TestPageService_FindByProjectPublished(t *testing.T) {
 		pagination := &types.PaginationInput{}
 
 		mockPageRepo.EXPECT().
-			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset).
+			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset, nil).
 			Return([]model.Page{}, int64(0), nil)
 
-		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination)
+		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination, nil)
 
 		assert.NoError(t, err)
 		assert.Empty(t, result)

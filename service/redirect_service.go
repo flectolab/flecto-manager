@@ -15,7 +15,7 @@ type RedirectService interface {
 	GetQuery(ctx context.Context) *gorm.DB
 	GetByID(ctx context.Context, namespaceCode, projectCode string, redirectID int64) (*model.Redirect, error)
 	FindByProject(ctx context.Context, namespaceCode, projectCode string) ([]model.Redirect, error)
-	FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput) ([]model.Redirect, int64, error)
+	FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput, afterID *int64) ([]model.Redirect, int64, error)
 	Search(ctx context.Context, query *gorm.DB) ([]model.Redirect, error)
 	SearchPaginate(ctx context.Context, pagination *commonTypes.PaginationInput, query *gorm.DB) (*model.RedirectList, error)
 	SearchBatch(ctx context.Context, query *gorm.DB, batchSize int, fn func([]model.Redirect) error) error
@@ -49,8 +49,8 @@ func (s *redirectService) FindByProject(ctx context.Context, namespaceCode, proj
 	return s.repo.FindByProject(ctx, namespaceCode, projectCode)
 }
 
-func (s *redirectService) FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput) ([]model.Redirect, int64, error) {
-	return s.repo.FindByProjectPublished(ctx, namespaceCode, projectCode, pagination.GetLimit(), pagination.GetOffset())
+func (s *redirectService) FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, pagination *commonTypes.PaginationInput, afterID *int64) ([]model.Redirect, int64, error) {
+	return s.repo.FindByProjectPublished(ctx, namespaceCode, projectCode, pagination.GetLimit(), pagination.GetOffset(), afterID)
 }
 
 func (s *redirectService) Search(ctx context.Context, query *gorm.DB) ([]model.Redirect, error) {

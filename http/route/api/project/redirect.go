@@ -30,7 +30,21 @@ func GetRedirects(permissionChecker *auth.PermissionChecker, redirectService ser
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err)
 		}
-		redirectsDB, total, err := redirectService.FindByProjectPublished(ctx, namespaceCode, projectCode, pagination)
+		// A cursor replaces the offset: the listing walks from a position rather than
+		// skipping rows, and the total travels inside the cursor so it is measured
+		// once instead of on every page.
+		var cursor *route.Cursor
+		var afterID *int64
+		if pagination.GetCursor() != "" {
+			decoded, errCursor := route.DecodeCursor(pagination.GetCursor())
+			if errCursor != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, errCursor)
+			}
+			cursor = &decoded
+			afterID = &decoded.AfterID
+		}
+
+		redirectsDB, total, err := redirectService.FindByProjectPublished(ctx, namespaceCode, projectCode, pagination, afterID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err)
 		}
@@ -38,10 +52,20 @@ func GetRedirects(permissionChecker *auth.PermissionChecker, redirectService ser
 		for _, redirect := range redirectsDB {
 			redirects = append(redirects, *redirect.Redirect)
 		}
+		var lastID int64
+		if len(redirectsDB) > 0 {
+			lastID = redirectsDB[len(redirectsDB)-1].ID
+		}
+		listPage, err := route.NewListPage(pagination, cursor, total, len(redirectsDB), lastID)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err)
+		}
+
 		redirectList := &commonTypes.RedirectList{
-			Total:  int(total),
-			Offset: pagination.GetOffset(),
-			Limit:  pagination.GetLimit(),
+			Total:  listPage.Total,
+			Offset: listPage.Offset,
+			Limit:  listPage.Limit,
+			Next:   listPage.Next,
 			Items:  redirects,
 		}
 		return c.JSON(http.StatusOK, redirectList)
