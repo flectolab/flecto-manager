@@ -13,7 +13,7 @@ type RedirectRepository interface {
 	GetQuery(ctx context.Context) *gorm.DB
 	FindByID(ctx context.Context, namespaceCode, projectCode string, redirectID int64) (*model.Redirect, error)
 	FindByProject(ctx context.Context, namespaceCode, projectCode string) ([]model.Redirect, error)
-	FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, limit, offset int) ([]model.Redirect, int64, error)
+	FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, limit, offset int, afterID *int64) ([]model.Redirect, int64, error)
 	Search(ctx context.Context, query *gorm.DB) ([]model.Redirect, error)
 	SearchPaginate(ctx context.Context, query *gorm.DB, limit, offset int) ([]model.Redirect, int64, error)
 	SearchBatch(ctx context.Context, query *gorm.DB, batchSize int, fn func([]model.Redirect) error) error
@@ -59,18 +59,33 @@ func (r *redirectRepository) FindByProject(ctx context.Context, namespaceCode, p
 	return redirects, nil
 }
 
-func (r *redirectRepository) FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, limit, offset int) ([]model.Redirect, int64, error) {
+func (r *redirectRepository) FindByProjectPublished(ctx context.Context, namespaceCode, projectCode string, limit, offset int, afterID *int64) ([]model.Redirect, int64, error) {
 	var total int64
 
 	query := r.db.WithContext(ctx).Model(&model.Redirect{}).
 		Where(fmt.Sprintf("%s = ? AND %s = ? AND is_published = 1", model.ColumnNamespaceCode, model.ColumnProjectCode), namespaceCode, projectCode)
 
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
+	// Cursor pagination walks from a position instead of skipping rows, so it also
+	// skips the count: the caller already has the total from the first page. Counting
+	// on every page is what makes a full sync of a large project slow.
+	if afterID == nil {
+		if err := query.Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+	} else {
+		query = query.Where("id > ?", *afterID)
 	}
 
+	// ORDER BY on both paths, not just the cursor one: without it the order is
+	// whatever plan the optimiser picked, so two pages of the same listing are not
+	// guaranteed to line up and a client can skip or repeat rows.
+	query = query.Order("id")
+
 	if limit != 0 {
-		query = query.Limit(limit).Offset(offset)
+		query = query.Limit(limit)
+		if afterID == nil {
+			query = query.Offset(offset)
+		}
 	}
 
 	var redirects []model.Redirect

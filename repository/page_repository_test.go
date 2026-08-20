@@ -354,7 +354,7 @@ func TestPageRepository_FindByProjectPublished(t *testing.T) {
 			})
 		}
 
-		results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 0, 0)
+		results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 0, 0, nil)
 
 		assert.NoError(t, err)
 		assert.Len(t, results, 3)
@@ -379,7 +379,7 @@ func TestPageRepository_FindByProjectPublished(t *testing.T) {
 			})
 		}
 
-		results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 5, 0)
+		results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 5, 0, nil)
 
 		assert.NoError(t, err)
 		assert.Len(t, results, 5)
@@ -401,7 +401,7 @@ func TestPageRepository_FindByProjectPublished(t *testing.T) {
 			})
 		}
 
-		results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 5, 7)
+		results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 5, 7, nil)
 
 		assert.NoError(t, err)
 		assert.Len(t, results, 3)
@@ -423,7 +423,7 @@ func TestPageRepository_FindByProjectPublished(t *testing.T) {
 			})
 		}
 
-		results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 0, 0)
+		results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 0, 0, nil)
 
 		assert.NoError(t, err)
 		assert.Empty(t, results)
@@ -454,7 +454,7 @@ func TestPageRepository_FindByProjectPublished(t *testing.T) {
 			})
 		}
 
-		results, total, err := repo.FindByProjectPublished(ctx, "ns-a", "proj-a", 0, 0)
+		results, total, err := repo.FindByProjectPublished(ctx, "ns-a", "proj-a", 0, 0, nil)
 
 		assert.NoError(t, err)
 		assert.Len(t, results, 5)
@@ -463,6 +463,77 @@ func TestPageRepository_FindByProjectPublished(t *testing.T) {
 			assert.Equal(t, "ns-a", page.NamespaceCode)
 			assert.Equal(t, "proj-a", page.ProjectCode)
 		}
+	})
+
+	t.Run("walks every row when paginating by cursor", func(t *testing.T) {
+		db := setupPageTestDB(t)
+		createTestPageNamespace(t, db, "test-ns", "Test Namespace")
+		createTestPageProject(t, db, "test-ns", "test-proj", "Test Project")
+		repo := NewPageRepository(db)
+		ctx := context.Background()
+
+		for i := 0; i < 10; i++ {
+			db.Create(&model.Page{
+				NamespaceCode: "test-ns",
+				ProjectCode:   "test-proj",
+				IsPublished:   boolPtr(true),
+			})
+		}
+
+		// A cursor walk must cover every row exactly once, whatever the page size.
+		seen := []int64{}
+		var afterID *int64
+		for {
+			results, total, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 3, 0, afterID)
+			assert.NoError(t, err)
+			if afterID != nil {
+				// The count is the expensive part of a page and only the first one pays it.
+				assert.Equal(t, int64(0), total)
+			} else {
+				assert.Equal(t, int64(10), total)
+			}
+			if len(results) == 0 {
+				break
+			}
+			for _, item := range results {
+				seen = append(seen, item.ID)
+			}
+			last := results[len(results)-1].ID
+			afterID = &last
+		}
+
+		assert.Len(t, seen, 10)
+		assert.IsIncreasing(t, seen)
+	})
+
+	t.Run("cursor replaces the offset", func(t *testing.T) {
+		db := setupPageTestDB(t)
+		createTestPageNamespace(t, db, "test-ns", "Test Namespace")
+		createTestPageProject(t, db, "test-ns", "test-proj", "Test Project")
+		repo := NewPageRepository(db)
+		ctx := context.Background()
+
+		for i := 0; i < 10; i++ {
+			db.Create(&model.Page{
+				NamespaceCode: "test-ns",
+				ProjectCode:   "test-proj",
+				IsPublished:   boolPtr(true),
+			})
+		}
+
+		all, _, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 0, 0, nil)
+		assert.NoError(t, err)
+		assert.Len(t, all, 10)
+
+		// An offset alongside a cursor must be ignored, not applied on top of it,
+		// otherwise a client sending both would silently skip rows.
+		afterID := all[3].ID
+		results, _, err := repo.FindByProjectPublished(ctx, "test-ns", "test-proj", 2, 5, &afterID)
+
+		assert.NoError(t, err)
+		assert.Len(t, results, 2)
+		assert.Equal(t, all[4].ID, results[0].ID)
+		assert.Equal(t, all[5].ID, results[1].ID)
 	})
 }
 

@@ -30,7 +30,21 @@ func GetPages(permissionChecker *auth.PermissionChecker, pageService service.Pag
 		if err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err)
 		}
-		pagesDB, total, err := pageService.FindByProjectPublished(ctx, namespaceCode, projectCode, pagination)
+		// A cursor replaces the offset: the listing walks from a position rather than
+		// skipping rows, and the total travels inside the cursor so it is measured
+		// once instead of on every page.
+		var cursor *route.Cursor
+		var afterID *int64
+		if pagination.GetCursor() != "" {
+			decoded, errCursor := route.DecodeCursor(pagination.GetCursor())
+			if errCursor != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, errCursor)
+			}
+			cursor = &decoded
+			afterID = &decoded.AfterID
+		}
+
+		pagesDB, total, err := pageService.FindByProjectPublished(ctx, namespaceCode, projectCode, pagination, afterID)
 		if err != nil {
 			return echo.NewHTTPError(http.StatusInternalServerError, err)
 		}
@@ -38,10 +52,20 @@ func GetPages(permissionChecker *auth.PermissionChecker, pageService service.Pag
 		for _, page := range pagesDB {
 			pages = append(pages, *page.Page)
 		}
+		var lastID int64
+		if len(pagesDB) > 0 {
+			lastID = pagesDB[len(pagesDB)-1].ID
+		}
+		listPage, err := route.NewListPage(pagination, cursor, total, len(pagesDB), lastID)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusInternalServerError, err)
+		}
+
 		pageList := &commonTypes.PageList{
-			Total:  int(total),
-			Offset: pagination.GetOffset(),
-			Limit:  pagination.GetLimit(),
+			Total:  listPage.Total,
+			Offset: listPage.Offset,
+			Limit:  listPage.Limit,
+			Next:   listPage.Next,
 			Items:  pages,
 		}
 		return c.JSON(http.StatusOK, pageList)

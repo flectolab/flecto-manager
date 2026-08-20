@@ -48,12 +48,13 @@ Authorization: Bearer <token>
 |-----------|------|---------|-------------|
 | `limit` | int | 500 | Maximum number of items to return |
 | `offset` | int | 0 | Number of items to skip |
+| `cursor` | string | - | Opaque cursor from a previous response, see [Pagination](#pagination). Replaces `offset` when set |
 
 **Response:**
 
 ```json
 {
-  "items": [
+  "Items": [
     {
       "type": "BASIC",
       "source": "/old-page",
@@ -73,9 +74,9 @@ Authorization: Bearer <token>
       "status": "MOVED_PERMANENT"
     }
   ],
-  "total": 3,
-  "limit": 500,
-  "offset": 0
+  "Total": 3,
+  "Limit": 500,
+  "Offset": 0
 }
 ```
 
@@ -96,12 +97,13 @@ Authorization: Bearer <token>
 |-----------|------|---------|-------------|
 | `limit` | int | 500 | Maximum number of items to return |
 | `offset` | int | 0 | Number of items to skip |
+| `cursor` | string | - | Opaque cursor from a previous response, see [Pagination](#pagination). Replaces `offset` when set |
 
 **Response:**
 
 ```json
 {
-  "items": [
+  "Items": [
     {
       "type": "BASIC",
       "path": "/robots.txt",
@@ -115,9 +117,9 @@ Authorization: Bearer <token>
       "contentType": "TEXT_PLAIN"
     }
   ],
-  "total": 2,
-  "limit": 500,
-  "offset": 0
+  "Total": 2,
+  "Limit": 500,
+  "Offset": 0
 }
 ```
 
@@ -228,21 +230,51 @@ HTTP/1.1 204 No Content
 
 ## Pagination
 
-List endpoints support pagination:
+List endpoints support two ways of walking a listing. Both return the same fields,
+so a client can switch from one to the other without changing how it reads the
+response.
+
+### By offset
 
 ```http
 GET /api/namespace/prod/project/website/redirects?limit=100&offset=200
 ```
 
-Check the `total` field to determine if more items exist:
-
 ```json
 {
-  "items": [...],
-  "total": 350,
-  "limit": 100,
-  "offset": 200
+  "Items": [...],
+  "Total": 350,
+  "Limit": 100,
+  "Offset": 200,
+  "Next": "eyJpZCI6MzAwLCJ0b3RhbCI6MzUwLCJkZWxpdmVyZWQiOjMwMH0"
 }
 ```
 
-If `offset + items.length < total`, more items are available.
+If `Offset + Items.length < Total`, more items are available.
+
+### By cursor (recommended for large projects)
+
+`Next` is an opaque cursor pointing just past the last item of the response. Pass it
+back as the `cursor` parameter to get the following page:
+
+```http
+GET /api/namespace/prod/project/website/redirects?limit=100&cursor=eyJpZCI6MzAwLCJ0b3RhbCI6MzUwLCJkZWxpdmVyZWQiOjMwMH0
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `cursor` | string | Opaque value returned as `Next` by the previous response. Replaces `offset`, which is ignored when both are sent. |
+
+An empty or absent `Next` means the listing is over. A malformed cursor is rejected
+with `400 Bad Request`.
+
+Offset pagination has to skip the rows it does not return, so page 1000 costs more
+than page 1. A cursor walks from a position instead, which keeps every page the same
+cost, and it carries the total measured on the first page so the count query is not
+repeated. On a project with hundreds of thousands of redirects this is the difference
+between a sync that slows down as it goes and one that does not.
+
+:::note
+Treat the cursor as opaque: its content is a server implementation detail and may
+change. Do not build one by hand, only echo back the value you received.
+:::

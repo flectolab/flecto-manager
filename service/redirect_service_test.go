@@ -117,10 +117,10 @@ func TestRedirectService_FindByProjectPublished(t *testing.T) {
 		}
 
 		mockRedirectRepo.EXPECT().
-			FindByProjectPublished(ctx, "test-ns", "test-proj", 10, 5).
+			FindByProjectPublished(ctx, "test-ns", "test-proj", 10, 5, nil).
 			Return(expectedRedirects, int64(50), nil)
 
-		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination)
+		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination, nil)
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedRedirects, result)
@@ -138,10 +138,10 @@ func TestRedirectService_FindByProjectPublished(t *testing.T) {
 		}
 
 		mockRedirectRepo.EXPECT().
-			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset).
+			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset, nil).
 			Return(expectedRedirects, int64(1), nil)
 
-		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination)
+		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination, nil)
 
 		assert.NoError(t, err)
 		assert.Equal(t, expectedRedirects, result)
@@ -157,10 +157,10 @@ func TestRedirectService_FindByProjectPublished(t *testing.T) {
 		expectedErr := errors.New("database error")
 
 		mockRedirectRepo.EXPECT().
-			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset).
+			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset, nil).
 			Return(nil, int64(0), expectedErr)
 
-		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination)
+		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination, nil)
 
 		assert.Error(t, err)
 		assert.Equal(t, expectedErr, err)
@@ -176,10 +176,10 @@ func TestRedirectService_FindByProjectPublished(t *testing.T) {
 		pagination := &types.PaginationInput{}
 
 		mockRedirectRepo.EXPECT().
-			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset).
+			FindByProjectPublished(ctx, "test-ns", "test-proj", types.DefaultLimit, types.DefaultOffset, nil).
 			Return([]model.Redirect{}, int64(0), nil)
 
-		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination)
+		result, total, err := svc.FindByProjectPublished(ctx, "test-ns", "test-proj", pagination, nil)
 
 		assert.NoError(t, err)
 		assert.Empty(t, result)
