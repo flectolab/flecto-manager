@@ -29,6 +29,8 @@ var (
 		model.Agent{},
 		model.Token{},
 		model.ActivityEvent{},
+		model.ProjectCdnConfig{},
+		model.ProjectCdnPurgeJob{},
 	}
 )
 

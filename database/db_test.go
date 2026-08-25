@@ -30,6 +30,8 @@ func TestModels(t *testing.T) {
 			model.Agent{},
 			model.Token{},
 			model.ActivityEvent{},
+			model.ProjectCdnConfig{},
+			model.ProjectCdnPurgeJob{},
 		}
 
 		assert.Equal(t, len(expectedModels), len(Models))
@@ -38,8 +40,8 @@ func TestModels(t *testing.T) {
 		}
 	})
 
-	t.Run("models count is 14", func(t *testing.T) {
-		assert.Len(t, Models, 14)
+	t.Run("models count is 16", func(t *testing.T) {
+		assert.Len(t, Models, 16)
 	})
 }
 

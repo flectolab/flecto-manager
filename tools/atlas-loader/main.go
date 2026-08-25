@@ -51,6 +51,9 @@ var removeConstraints = []string{
 	"fk_projects_namespace",
 	"fk_pages_page_draft",
 	"fk_redirects_redirect_draft",
+	"fk_project_cdn_configs_project",
+	"fk_project_cdn_purge_jobs_project",
+	"fk_project_cdn_purge_jobs_cdn_config",
 }
 
 // customForeignKeys defines FK constraints with correct direction and CASCADE.
@@ -69,6 +72,12 @@ var customForeignKeys = []string{
 	// user only clears the link, the actor name stays in the row.
 	"ALTER TABLE `activity_events` ADD CONSTRAINT `fk_activity_events_project` FOREIGN KEY (`namespace_code`,`project_code`) REFERENCES `projects`(`namespace_code`,`project_code`) ON DELETE CASCADE;",
 	"ALTER TABLE `activity_events` ADD CONSTRAINT `fk_activity_events_user` FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL;",
+	// A CDN configuration only makes sense for its project, credentials included.
+	"ALTER TABLE `project_cdn_configs` ADD CONSTRAINT `fk_project_cdn_configs_project` FOREIGN KEY (`namespace_code`,`project_code`) REFERENCES `projects`(`namespace_code`,`project_code`) ON DELETE CASCADE;",
+	// A purge job cannot outlive what it purges through: without its configuration
+	// there are no credentials to send it with, and no zone to send it to.
+	"ALTER TABLE `project_cdn_purge_jobs` ADD CONSTRAINT `fk_project_cdn_purge_jobs_project` FOREIGN KEY (`namespace_code`,`project_code`) REFERENCES `projects`(`namespace_code`,`project_code`) ON DELETE CASCADE;",
+	"ALTER TABLE `project_cdn_purge_jobs` ADD CONSTRAINT `fk_project_cdn_purge_jobs_cdn_config` FOREIGN KEY (`cdn_config_id`) REFERENCES `project_cdn_configs`(`id`) ON DELETE CASCADE;",
 }
 
 func main() {

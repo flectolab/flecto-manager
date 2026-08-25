@@ -25,6 +25,7 @@ const sidebars: SidebarsConfig = {
         'features/pages',
         'features/agents',
         'features/activity',
+        'features/cdn',
       ],
     },
     {

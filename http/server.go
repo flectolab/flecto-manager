@@ -135,6 +135,8 @@ func createGraphQLHandler(ctx *context.Context, services *service.Services, perm
 			AgentService:            services.Agent,
 			ProjectDashboardService: services.ProjectDashboard,
 			ActivityService:         services.Activity,
+			ProjectCdnService:       services.ProjectCdn,
+			CdnPurgeService:         services.CdnPurge,
 			AgentConfig:             ctx.Config.Agent,
 		},
 		Directives: graph.DirectiveRoot{Public: graph.PublicDirective},

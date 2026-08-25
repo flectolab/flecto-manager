@@ -17,6 +17,10 @@ type PageRepository interface {
 	Search(ctx context.Context, query *gorm.DB) ([]model.Page, error)
 	SearchPaginate(ctx context.Context, query *gorm.DB, limit, offset int) ([]model.Page, int64, error)
 	GetTotalContentSize(ctx context.Context, namespaceCode, projectCode string) (int64, error)
+	// FindAddressesByIDs projects the type and path of published pages. Pages carry
+	// their content inline, so loading whole rows to read a path would pull megabytes
+	// through for nothing.
+	FindAddressesByIDs(ctx context.Context, tx *gorm.DB, ids []int64, batchSize int) ([]model.ResourceAddress, error)
 }
 
 type pageRepository struct {
@@ -157,4 +161,12 @@ func (r *pageRepository) GetTotalContentSize(ctx context.Context, namespaceCode,
 	}
 
 	return totalSize, nil
+}
+
+func (r *pageRepository) FindAddressesByIDs(ctx context.Context, tx *gorm.DB, ids []int64, batchSize int) ([]model.ResourceAddress, error) {
+	query := tx
+	if query == nil {
+		query = r.db.WithContext(ctx)
+	}
+	return findAddressesByIDs(query.Model(&model.Page{}), "path", ids, batchSize)
 }

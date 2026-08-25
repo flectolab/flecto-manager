@@ -19,6 +19,7 @@ const resourceFilterLabels: Record<ActivityResource, string> = {
   PAGE: 'Pages',
   PROJECT: 'Project',
   ACTIVITY: 'Journal',
+  CDN: 'CDN',
 }
 
 const actionFilterLabels: Record<ActivityAction, string> = {
@@ -28,6 +29,7 @@ const actionFilterLabels: Record<ActivityAction, string> = {
   IMPORT: 'Imported',
   ROLLBACK: 'Discarded',
   PUBLISH: 'Published',
+  PURGE: 'Purged',
   TRUNCATE: 'Truncated',
 }
 

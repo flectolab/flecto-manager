@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/flectolab/flecto-manager/cdn"
 	commonTypes "github.com/flectolab/flecto-manager/common/types"
 	appContext "github.com/flectolab/flecto-manager/context"
 	"github.com/flectolab/flecto-manager/model"
@@ -56,6 +57,7 @@ type projectService struct {
 	repoRedirectDraft repository.RedirectDraftRepository
 	repoPageDraft     repository.PageDraftRepository
 	activity          ActivityService
+	cdnPurge          CdnPurgeService
 }
 
 func NewProjectService(
@@ -65,6 +67,7 @@ func NewProjectService(
 	repoRedirectDraft repository.RedirectDraftRepository,
 	repoPageDraft repository.PageDraftRepository,
 	activity ActivityService,
+	cdnPurge CdnPurgeService,
 ) ProjectService {
 	return &projectService{
 		ctx:               ctx,
@@ -73,6 +76,7 @@ func NewProjectService(
 		repoRedirectDraft: repoRedirectDraft,
 		repoPageDraft:     repoPageDraft,
 		activity:          activity,
+		cdnPurge:          cdnPurge,
 	}
 }
 
@@ -216,6 +220,10 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 	activityRedirectCounts := model.ActivityPublishCounts{}
 	activityPageCounts := model.ActivityPublishCounts{}
 
+	// What the CDN has to invalidate, gathered along the way: the addresses this
+	// publish writes, and the ids of the rows it is about to replace or remove.
+	cdnChanges := model.CdnDraftChanges{}
+
 	redirects := make([]*model.Redirect, 0)
 	redirectsToDelete := make([]int64, 0)
 	redirectDraftIDs := make([]int64, 0, len(redirectDrafts))
@@ -232,8 +240,16 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 				ProjectCode:   projectCode,
 				Redirect:      draft.NewRedirect,
 			})
+			cdnChanges.NewEntries = append(cdnChanges.NewEntries, cdn.RedirectEntry(draft.NewRedirect))
+			if draft.ChangeType == model.DraftChangeTypeUpdate {
+				// An update may move the redirect elsewhere, and the address it leaves
+				// behind has a cached response of its own. A creation has no old address:
+				// the row its draft points at is an empty placeholder.
+				cdnChanges.RedirectIDs = append(cdnChanges.RedirectIDs, *draft.OldRedirectID)
+			}
 		case model.DraftChangeTypeDelete:
 			redirectsToDelete = append(redirectsToDelete, *draft.OldRedirectID)
+			cdnChanges.RedirectIDs = append(cdnChanges.RedirectIDs, *draft.OldRedirectID)
 		}
 	}
 
@@ -260,9 +276,22 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 				ContentSize:   draft.ContentSize,
 				Page:          draft.NewPage,
 			})
+			cdnChanges.NewEntries = append(cdnChanges.NewEntries, cdn.PageEntry(draft.NewPage))
+			if draft.ChangeType == model.DraftChangeTypeUpdate {
+				cdnChanges.PageIDs = append(cdnChanges.PageIDs, *draft.OldPageID)
+			}
 		case model.DraftChangeTypeDelete:
 			pagesToDelete = append(pagesToDelete, *draft.OldPageID)
+			cdnChanges.PageIDs = append(cdnChanges.PageIDs, *draft.OldPageID)
 		}
+	}
+
+	// Read before the transaction removes what it describes: a deleted redirect only
+	// says what it used to serve while its row is still there.
+	cdnPlan, err := s.cdnPurge.Collect(ctx, namespaceCode, projectCode, cdnChanges)
+	if err != nil {
+		s.ctx.Logger.Error("publish failed: cdn collection", "namespace", namespaceCode, "project", projectCode, "error", err)
+		return nil, err
 	}
 
 	err = s.repo.GetTx(ctx).Transaction(func(tx *gorm.DB) error {
@@ -321,6 +350,12 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 		project.PublishedAt = publishedAt
 		err = tx.Save(project).Error
 		if err != nil {
+			return err
+		}
+
+		// Inside the transaction on purpose: a purge must not outlive a publish that
+		// rolled back, nor be lost by one that went through.
+		if err = s.cdnPurge.Enqueue(ctx, tx, cdnPlan, project.Version); err != nil {
 			return err
 		}
 

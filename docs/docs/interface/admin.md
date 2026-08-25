@@ -141,6 +141,15 @@ All three require **write access to the Projects admin section**, not project re
 permissions: a user who can edit a project's redirects cannot wipe them. Each
 truncate is itself recorded in the [activity journal](../features/activity.md).
 
+### CDN
+
+The **CDN** tab of the project edit page declares where the project's cache is
+purged on publish, and shows the purge history. It also offers a manual purge of
+given URLs. See [CDN Cache Purge](../features/cdn.md).
+
+Read access to the **Projects** admin section shows the configurations and the
+history; write access is needed to change them, test them or purge by hand.
+
 ## API Tokens
 
 Generate API tokens for agents and automation.

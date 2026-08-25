@@ -50,6 +50,18 @@ metrics, identified by a `task` label.
 A task that panics is counted as an `error`, so a task failing on every run never
 reads as healthy.
 
+### CDN purges
+
+Counted once a [purge job](./features/cdn.md) is finished, by provider and outcome.
+The purge task itself (`task="cdn-purge"`) also reports the background task metrics
+above.
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `flecto_cdn_purge_jobs_total` | Counter | `provider`, `status` | Finished purge jobs, by status: `SUCCEEDED`, `PARTIAL`, `FAILED` or `SKIPPED` |
+| `flecto_cdn_purge_targets_total` | Counter | `provider`, `outcome` | URLs `purged` or `failed`, and entries `skipped` because they could not be purged |
+| `flecto_cdn_purge_job_duration_seconds` | Histogram | `provider` | Time spent sending a job, from the moment it stops waiting for the agents to the end |
+
 ## Alerting
 
 The examples below are starting points. Adjust every threshold and window to your own
@@ -134,6 +146,19 @@ one worth having if you only keep one.
   for: 30m
 ```
 
+### CDN purges
+
+```yaml
+# A publish never fully reached the CDN. The cache serves the previous redirects
+# until they expire, and nothing else says so outside the project's history.
+- alert: FlectoCdnPurgeNotDone
+  expr: increase(flecto_cdn_purge_jobs_total{status=~"FAILED|PARTIAL|SKIPPED"}[1h]) > 0
+```
+
+The project's purge history (CDN tab of the admin project page) tells which job it
+was and why. A `SKIPPED` job is not always a problem: it is also what a disabled
+configuration produces.
+
 ## Dashboards
 
 Useful panels to build from these metrics:
@@ -142,3 +167,4 @@ Useful panels to build from these metrics:
 - Online and erroring agents per namespace and project
 - Background task success rate, `rate(flecto_scheduler_task_runs_total[1h])` by `task` and `status`
 - Time since each task last succeeded, `time() - flecto_scheduler_task_last_success_timestamp_seconds`
+- CDN purge outcomes, `increase(flecto_cdn_purge_jobs_total[1d])` by `status`

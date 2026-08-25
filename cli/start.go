@@ -31,6 +31,7 @@ func GetStartRunFn(ctx *context.Context) func(*cobra.Command, []string) error {
 		// Background work: one goroutine per task, independent of the HTTP server
 		sched := scheduler.New(ctx)
 		sched.Register(task.NewActivityPurge(ctx, services.Activity))
+		sched.Register(task.NewCdnPurge(ctx, services.CdnPurgeWorker))
 		sched.Start()
 
 		// Start separate metrics server if configured

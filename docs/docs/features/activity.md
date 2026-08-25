@@ -27,6 +27,8 @@ restoring a previous state.
 | Publish the project | `PUBLISH` | The new version and what it moved |
 | Truncate all redirects or pages | `TRUNCATE` | How many published entries and drafts were removed, and the version it published |
 | Truncate the journal | `TRUNCATE` | How many entries were removed |
+| Create, modify or delete a CDN configuration | `CREATE`, `UPDATE`, `DELETE` | The configuration, never its credentials |
+| Purge the CDN cache | `PURGE` | Outcome, URLs purged and failed, what was skipped and why, whether the agents had caught up |
 
 Bulk operations produce **one** entry, not one per item: importing 200,000 redirects
 adds a single row summarising the import, and publishing 50,000 changes adds a single
@@ -34,6 +36,10 @@ row with the counts.
 
 Page contents are never recorded, only the path, type and size. A journal entry tells
 you a page changed and how big it became, not what was inside it.
+
+A CDN purge is recorded once it is finished, by the background task that sent it,
+so its actor is `system` rather than the user who published. See
+[CDN Cache Purge](./cdn.md).
 
 ## Who acted
 

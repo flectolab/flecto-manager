@@ -51,6 +51,19 @@ activity:
   max_events_per_project: 1000  # Max entries kept per project (0 = unlimited)
   purge_interval: 1h            # How often old entries are trimmed (0 = disabled)
 
+# CDN cache purge (optional, inert until a project declares a CDN)
+cdn:
+  enabled: true                    # Kill switch: stops every purge
+  worker_interval: 30s             # How often queued purges are sent (0 = disabled)
+  agent_convergence_timeout: 30m   # How long a purge waits for the agents
+  max_targets_per_job: 5000        # Beyond it, a publish is recorded as skipped (0 = no cap)
+  http_timeout: 10s                # Timeout of one call to a CDN API
+  job_retention: 720h              # How long finished purges are kept (0 = forever)
+
+# Encryption of the secrets stored in the database (optional)
+security:
+  encryption_key: ""         # 32 bytes, base64 or "hex:..." (empty = secret storage disabled)
+
 # Prometheus metrics (optional)
 metrics:
   enabled: false             # Enable Prometheus metrics
@@ -218,9 +231,60 @@ activity:
 Lowering `max_events_per_project` takes effect on the next purge. To apply it right
 away, run `flecto-manager db activity-purge`.
 
+## CDN Cache Purge
+
+[CDN cache purge](./features/cdn.md) invalidates the CDN cache of what a publish
+changed. Nothing happens until a project declares a CDN configuration, so these
+settings only tune how purges are sent.
+
+```yaml
+cdn:
+  enabled: true
+  worker_interval: 30s
+  agent_convergence_timeout: 30m
+  max_targets_per_job: 5000
+  http_timeout: 10s
+  job_retention: 720h
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `enabled` | `true` | Kill switch. `false` stops every purge: publishes queue nothing and queued jobs stay where they are, without touching the stored configurations. Manual purges are refused. |
+| `worker_interval` | `30s` | How often the background task sends queued purges. `0` disables the task: jobs stay queued and manual purges are refused. |
+| `agent_convergence_timeout` | `30m` | How long a purge waits for the project's agents to serve the published version before purging anyway. |
+| `max_targets_per_job` | `5000` | Beyond this number of URLs, a publish's purge is recorded as skipped instead of being sent, and a manual purge is refused. `0` lifts the cap. |
+| `http_timeout` | `10s` | Timeout of a single call to a CDN API, for a purge as well as for the **Test** button. `0` keeps the provider's default (10s). |
+| `job_retention` | `720h` | How long finished purges stay in the history. `0` keeps them forever. |
+
+## Encryption Key
+
+Some values are stored encrypted in the database, such as the credentials of a
+[CDN configuration](./features/cdn.md). They are protected by
+`security.encryption_key`, a 32 byte key given in base64 (or as `hex:...`).
+
+```bash
+flecto-manager security generate-key
+```
+
+```yaml
+security:
+  encryption_key: "<the generated key>"
+```
+
+Without a key the instance starts normally, and the features needing one report
+themselves as unavailable rather than storing secrets in clear text.
+
+:::warning
+Back the key up with the rest of your secrets. Losing it, or changing it, makes the
+values encrypted with the previous key unreadable: CDN credentials then have to be
+entered again.
+:::
+
 ## Security Recommendations
 
 1. **Use a strong JWT secret** - At least 32 characters, randomly generated
 2. **Use HTTPS** - Always run behind a reverse proxy with TLS
 3. **Change default password** - Change `admin` password immediately
 4. **Restrict network access** - Bind to localhost if using a reverse proxy
+5. **Keep the encryption key out of the database backups** - A backup holding both
+   the encrypted values and their key protects nothing

@@ -8,10 +8,10 @@ import (
 
 	commonTypes "github.com/flectolab/flecto-manager/common/types"
 	appContext "github.com/flectolab/flecto-manager/context"
-	"github.com/flectolab/flecto-manager/service"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"gorm.io/gorm"
 )
 
 // Outcome labels of a background task run.
@@ -91,7 +91,56 @@ var (
 		},
 		[]string{"task"},
 	)
+
+	// CdnPurgeJobsTotal counts finished purge jobs by outcome. A publish that never
+	// reached the CDN is otherwise only visible in the activity journal of one
+	// project, which nobody watches.
+	CdnPurgeJobsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "flecto_cdn_purge_jobs_total",
+			Help: "Finished CDN purge jobs by provider and outcome",
+		},
+		[]string{"provider", "status"},
+	)
+
+	// CdnPurgeTargetsTotal counts URLs, not requests: it is what the CDN quota is
+	// spent on, and what a publish is measured in.
+	CdnPurgeTargetsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "flecto_cdn_purge_targets_total",
+			Help: "CDN purge targets by provider and outcome",
+		},
+		[]string{"provider", "outcome"},
+	)
+
+	// CdnPurgeJobDuration measures a job end to end, waiting for the agents
+	// included, which is what tells whether the convergence timeout is well chosen.
+	CdnPurgeJobDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "flecto_cdn_purge_job_duration_seconds",
+			Help:    "CDN purge job duration in seconds",
+			Buckets: []float64{1, 5, 15, 60, 300, 900, 1800, 3600},
+		},
+		[]string{"provider"},
+	)
 )
+
+// CDN purge outcomes, used as the outcome label of CdnPurgeTargetsTotal.
+const (
+	CdnOutcomePurged  = "purged"
+	CdnOutcomeFailed  = "failed"
+	CdnOutcomeSkipped = "skipped"
+)
+
+// RecordCdnPurgeJob reports a finished purge job.
+func RecordCdnPurgeJob(provider, status string, purged, failed, skipped int, duration time.Duration) {
+	CdnPurgeJobsTotal.WithLabelValues(provider, status).Inc()
+	CdnPurgeJobDuration.WithLabelValues(provider).Observe(duration.Seconds())
+
+	CdnPurgeTargetsTotal.WithLabelValues(provider, CdnOutcomePurged).Add(float64(purged))
+	CdnPurgeTargetsTotal.WithLabelValues(provider, CdnOutcomeFailed).Add(float64(failed))
+	CdnPurgeTargetsTotal.WithLabelValues(provider, CdnOutcomeSkipped).Add(float64(skipped))
+}
 
 func init() {
 	prometheus.MustRegister(AgentErrorsGauge)
@@ -101,6 +150,9 @@ func init() {
 	prometheus.MustRegister(SchedulerTaskRunsTotal)
 	prometheus.MustRegister(SchedulerTaskDuration)
 	prometheus.MustRegister(SchedulerTaskLastSuccessTimestamp)
+	prometheus.MustRegister(CdnPurgeJobsTotal)
+	prometheus.MustRegister(CdnPurgeTargetsTotal)
+	prometheus.MustRegister(CdnPurgeJobDuration)
 }
 
 // InitSchedulerTask publishes a task's counters before its first run. Without this
@@ -137,19 +189,28 @@ type AgentMetricsProvider interface {
 	GetAgentCounts(ctx context.Context, onlineThreshold time.Time) ([]AgentCount, error)
 }
 
-// agentMetricsProvider implements AgentMetricsProvider using AgentService
+// AgentQuerier is the slice of the agent service this package needs.
+//
+// It is declared here rather than imported from service so the dependency points
+// one way: a service reports its metrics, and metrics never reaches back into the
+// services. service.AgentService satisfies it as it stands.
+type AgentQuerier interface {
+	GetQuery(ctx context.Context) *gorm.DB
+}
+
+// agentMetricsProvider reads the agent counts straight from the agent query.
 type agentMetricsProvider struct {
-	agentService service.AgentService
+	agents AgentQuerier
 }
 
 // NewAgentMetricsProvider creates a new AgentMetricsProvider
-func NewAgentMetricsProvider(agentService service.AgentService) AgentMetricsProvider {
-	return &agentMetricsProvider{agentService: agentService}
+func NewAgentMetricsProvider(agents AgentQuerier) AgentMetricsProvider {
+	return &agentMetricsProvider{agents: agents}
 }
 
 func (p *agentMetricsProvider) GetAgentCounts(ctx context.Context, onlineThreshold time.Time) ([]AgentCount, error) {
 	var counts []AgentCount
-	err := p.agentService.GetQuery(ctx).
+	err := p.agents.GetQuery(ctx).
 		Select("namespace_code, project_code, status, count(*) as count").
 		Where("last_hit_at > ?", onlineThreshold).
 		Group("namespace_code, project_code, status").

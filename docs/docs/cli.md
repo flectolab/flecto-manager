@@ -190,6 +190,30 @@ This command is useful for resetting a forgotten admin password without database
 
 ---
 
+### security
+
+Commands managing the key material of the instance.
+
+#### security generate-key
+
+Generate a random 32 byte key for `security.encryption_key` and print it, base64
+encoded.
+
+```bash
+flecto-manager security generate-key
+```
+
+The key is printed alone on its line, so it can be piped straight into a secret
+manager. The command needs no configuration file: it is meant to run before one
+exists. See [Encryption Key](./configuration.md#encryption-key).
+
+:::warning
+Changing the key of a running instance makes the values encrypted with the previous
+one unreadable.
+:::
+
+---
+
 ## Quick Reference
 
 ```bash
@@ -213,4 +237,7 @@ flecto-manager db migrate down -n 1 -c config.yaml  # Rollback 1 migration
 
 # User management
 flecto-manager user change-password -u admin -p newpass -c config.yaml
+
+# Security
+flecto-manager security generate-key                # Generate an encryption key
 ```

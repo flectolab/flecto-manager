@@ -22,6 +22,14 @@ func TestDefaultConfig(t *testing.T) {
 				MaxEventsPerProject: 1000,
 				PurgeInterval:       time.Hour,
 			},
+			Cdn: CdnConfig{
+				Enabled:                 true,
+				WorkerInterval:          30 * time.Second,
+				AgentConvergenceTimeout: 30 * time.Minute,
+				MaxTargetsPerJob:        5000,
+				HTTPTimeout:             10 * time.Second,
+				JobRetention:            30 * 24 * time.Hour,
+			},
 			Auth: AuthConfig{
 				JWT: JWTConfig{
 					Secret:          "",

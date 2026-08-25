@@ -8,7 +8,9 @@ import type {
   ActivityPublish,
   ActivityPublishCounts,
   ActivityRollback,
+  ActivityCdnPurge,
   ActivityTruncate,
+  CdnConfigSnapshot,
   DraftChangeType,
   PageSnapshot,
   RedirectSnapshot,
@@ -210,6 +212,89 @@ function describePublish(payload: ActivityPublish): ActivityDescription {
   }
 }
 
+// --- CDN ---------------------------------------------------------------------
+
+const CDN_FIELDS = [
+  { key: 'type', label: 'provider' },
+  { key: 'enabled', label: 'enabled' },
+] as const
+
+function cdnState(config: CdnConfigSnapshot): ActivityFieldDescriptor[] {
+  return [
+    value('name', config.name),
+    value('provider', config.type),
+    value('enabled', String(config.enabled)),
+    value('hosts', config.hosts?.join(', ') || 'none'),
+  ]
+}
+
+function describeCdnChange(payload: ActivityChange<CdnConfigSnapshot>): ActivityDescription {
+  const { before, after } = payload
+
+  if (before && after) {
+    const changed = CDN_FIELDS.filter((f) => String(before[f.key]) !== String(after[f.key]))
+    const hostsChanged = (before.hosts ?? []).join(',') !== (after.hosts ?? []).join(',')
+
+    if (changed.length === 0 && !hostsChanged) return { fields: cdnState(after) }
+
+    return {
+      fields: [
+        // The name identifies the configuration, keep it even when unchanged
+        value('name', after.name),
+        ...changed.map((f) => change(f.label, String(before[f.key]), String(after[f.key]))),
+        ...(hostsChanged
+          ? [change('hosts', before.hosts?.join(', ') || 'none', after.hosts?.join(', ') || 'none')]
+          : []),
+      ],
+    }
+  }
+
+  const state = after ?? before
+  return { fields: state ? cdnState(state) : [] }
+}
+
+const skipReasonLabels: Record<string, string> = {
+  PATTERN: 'regex',
+  NO_HOST_MATCH: 'hostname not served',
+  NO_HOST: 'no hostname configured',
+  INVALID: 'invalid',
+  TOO_MANY_TARGETS: 'too many URLs',
+  CONFIG_DISABLED: 'configuration disabled',
+}
+
+function skippedLabel(skipped?: Record<string, number>): string {
+  const entries = Object.entries(skipped ?? {}).filter(([, count]) => count > 0)
+  if (entries.length === 0) return 'none'
+
+  return entries.map(([reason, count]) => `${count} ${skipReasonLabels[reason] ?? reason}`).join(' · ')
+}
+
+function describeCdnPurge(payload: ActivityCdnPurge): ActivityDescription {
+  const fields = [
+    value('cdn', `${payload.config} (${payload.type})`),
+    value('status', payload.status),
+    value('version', `v${payload.version}`),
+    value('urls', `${payload.purged} purged · ${payload.failed} failed of ${payload.requested}`),
+    value('skipped', skippedLabel(payload.skipped)),
+  ]
+
+  if (payload.skipReason) {
+    fields.push(value('reason', skipReasonLabels[payload.skipReason] ?? payload.skipReason))
+  }
+
+  // Worth saying out loud: the purge did not wait for the agents to catch up, so
+  // the cache may have been refilled with the previous version.
+  if (!payload.waitedForAgents) {
+    fields.push(value('agents', 'purged before the agents caught up'))
+  }
+
+  if (payload.error) {
+    fields.push(value('error', payload.error))
+  }
+
+  return { fields }
+}
+
 // --- Entry point ------------------------------------------------------------
 
 type Describer = (data: unknown) => ActivityDescription
@@ -228,6 +313,10 @@ const describers: Partial<Record<string, Describer>> = {
   REDIRECT_TRUNCATE: (d) => describeTruncate(d as ActivityTruncate),
   PAGE_TRUNCATE: (d) => describeTruncate(d as ActivityTruncate),
   ACTIVITY_TRUNCATE: (d) => describeTruncate(d as ActivityTruncate),
+  CDN_CREATE: (d) => describeCdnChange(d as ActivityChange<CdnConfigSnapshot>),
+  CDN_UPDATE: (d) => describeCdnChange(d as ActivityChange<CdnConfigSnapshot>),
+  CDN_DELETE: (d) => describeCdnChange(d as ActivityChange<CdnConfigSnapshot>),
+  CDN_PURGE: (d) => describeCdnPurge(d as ActivityCdnPurge),
 }
 
 /**
