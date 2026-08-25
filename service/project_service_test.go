@@ -37,7 +37,7 @@ func setupProjectServiceTest(t *testing.T) *projectServiceTestDeps {
 	mockPageRepo := mockFlectoRepository.NewMockPageRepository(ctrl)
 	mockRedirectDraftRepo := mockFlectoRepository.NewMockRedirectDraftRepository(ctrl)
 	mockPageDraftRepo := mockFlectoRepository.NewMockPageDraftRepository(ctrl)
-	svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), mockProjRepo, mockPageRepo, mockRedirectDraftRepo, mockPageDraftRepo, newTestActivityService(t, nil))
+	svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), mockProjRepo, mockPageRepo, mockRedirectDraftRepo, mockPageDraftRepo, newTestActivityService(t, nil), newTestCdnPurgeService(t))
 	return &projectServiceTestDeps{
 		ctrl:              ctrl,
 		mockProjRepo:      mockProjRepo,
@@ -1048,7 +1048,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1088,7 +1088,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1122,7 +1122,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1161,7 +1161,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1203,7 +1203,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1240,7 +1240,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1277,7 +1277,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1315,7 +1315,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1353,7 +1353,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1391,7 +1391,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1429,7 +1429,7 @@ func TestProjectService_Publish(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1547,7 +1547,7 @@ func TestProjectService_Publish_LockError(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1586,7 +1586,7 @@ func TestProjectService_Publish_LockError(t *testing.T) {
 		pageRepo := repository.NewPageRepository(db)
 		redirectDraftRepo := repository.NewRedirectDraftRepository(db)
 		pageDraftRepo := repository.NewPageDraftRepository(db)
-		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db))
+		svc := NewProjectService(testContextWithPageConfig(defaultProjectCfg), projRepo, pageRepo, redirectDraftRepo, pageDraftRepo, newTestActivityService(t, db), newTestCdnPurgeService(t))
 
 		ctx := context.Background()
 		result, err := svc.Publish(ctx, "test-ns", "test-proj")
@@ -1618,6 +1618,7 @@ func TestProjectService_PublishActivityEvent(t *testing.T) {
 			repository.NewRedirectDraftRepository(db),
 			repository.NewPageDraftRepository(db),
 			newTestActivityService(t, db),
+			newTestCdnPurgeService(t),
 		)
 		return db, svc
 	}
@@ -1736,6 +1737,7 @@ func TestProjectService_Truncate(t *testing.T) {
 			repository.NewRedirectDraftRepository(db),
 			repository.NewPageDraftRepository(db),
 			newTestActivityService(t, db),
+			newTestCdnPurgeService(t),
 		)
 		return db, svc
 	}

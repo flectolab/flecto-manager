@@ -8,6 +8,7 @@ const actionStyles: Record<ActivityAction, { label: string; className: string }>
   ROLLBACK: { label: 'Discarded', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
   PUBLISH: { label: 'Published', className: 'bg-brand-purple/10 text-brand-purple dark:bg-brand-purple/20' },
   TRUNCATE: { label: 'Truncated', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
+  PURGE: { label: 'Purged', className: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400' },
 }
 
 const resourceLabels: Record<ActivityResource, string> = {
@@ -15,6 +16,7 @@ const resourceLabels: Record<ActivityResource, string> = {
   PAGE: 'Page',
   PROJECT: 'Project',
   ACTIVITY: 'Activity',
+  CDN: 'CDN',
 }
 
 export function ActivityActionBadge({ action }: { action: ActivityAction }) {

@@ -1,9 +1,13 @@
 package resolver
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/flectolab/flecto-manager/auth"
 	"github.com/flectolab/flecto-manager/config"
 	"github.com/flectolab/flecto-manager/graph"
+	"github.com/flectolab/flecto-manager/model"
 	"github.com/flectolab/flecto-manager/service"
 )
 
@@ -27,7 +31,21 @@ type Resolver struct {
 	AgentService            service.AgentService
 	ProjectDashboardService service.ProjectDashboardService
 	ActivityService         service.ActivityService
+	ProjectCdnService       service.ProjectCdnConfigService
+	CdnPurgeService         service.CdnPurgeService
 	AgentConfig             config.AgentConfig
+}
+
+// canAdministerProjects gates the CDN configuration on project administration
+// rather than on the project resources: it holds the credentials of a third-party
+// account, which is not something a redirect editor should reach, the same way
+// truncating a project is kept out of their hands.
+func (r *Resolver) canAdministerProjects(ctx context.Context, action model.ActionType) error {
+	userCtx := auth.GetUser(ctx)
+	if !r.PermissionChecker.CanAdmin(userCtx.SubjectPermissions, model.AdminSectionProjects, action) {
+		return fmt.Errorf("user %s has no permission to access %s", userCtx.Username, model.AdminSectionProjects)
+	}
+	return nil
 }
 
 func strPtrOrNil(s string) *string {

@@ -9,6 +9,7 @@ func New(options ...validator.Option) *validator.Validate {
 	validate := validator.New()
 	_ = validate.RegisterValidation(CodeKey, ValidateCode)
 	_ = validate.RegisterValidation(UsernameKey, ValidateUsername)
+	_ = validate.RegisterValidation(EncryptionKeyKey, ValidateEncryptionKey)
 	validate.RegisterStructValidation(ValidateRedirect, commonTypes.Redirect{})
 	validate.RegisterStructValidation(ValidatePage, commonTypes.Page{})
 	return validate

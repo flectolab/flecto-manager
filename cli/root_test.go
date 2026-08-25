@@ -1,12 +1,14 @@
 package cli
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"testing"
 
 	"github.com/flectolab/flecto-manager/config"
 	"github.com/flectolab/flecto-manager/context"
+	"github.com/flectolab/flecto-manager/crypt"
 	"github.com/spf13/afero"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -183,4 +185,45 @@ func TestGetRootPreRunEFn_FailValidator(t *testing.T) {
 	err := GetRootPreRunEFn(ctx, true)(cmd, []string{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "configuration file is not valid")
+}
+
+func TestSetupCrypt(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(make([]byte, crypt.KeySize))
+
+	tests := []struct {
+		name            string
+		encryptionKey   string
+		wantErr         assert.ErrorAssertionFunc
+		wantUnavailable bool
+	}{
+		{
+			name:            "successWithoutKey",
+			encryptionKey:   "",
+			wantErr:         assert.NoError,
+			wantUnavailable: true,
+		},
+		{
+			name:          "successWithKey",
+			encryptionKey: key,
+			wantErr:       assert.NoError,
+		},
+		{
+			name:            "failWithInvalidKey",
+			encryptionKey:   "not-a-key",
+			wantErr:         assert.Error,
+			wantUnavailable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.TestContext(nil)
+			ctx.Config.Security.EncryptionKey = tt.encryptionKey
+
+			err := setupCrypt(ctx)
+
+			tt.wantErr(t, err)
+			assert.Equal(t, tt.wantUnavailable, crypt.IsUnavailable(ctx.Cipher))
+		})
+	}
 }

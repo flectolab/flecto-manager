@@ -14,6 +14,48 @@ type Config struct {
 	Agent    AgentConfig    `mapstructure:"agent" validate:"required"`
 	Metrics  MetricsConfig  `mapstructure:"metrics"`
 	Activity ActivityConfig `mapstructure:"activity"`
+	Security SecurityConfig `mapstructure:"security"`
+	Cdn      CdnConfig      `mapstructure:"cdn"`
+}
+
+// CdnConfig bounds the cache invalidation done on publish.
+//
+// The feature is inert until a project declares a CDN configuration, so the
+// switch here is an operational kill switch rather than the way it is turned on.
+type CdnConfig struct {
+	// Enabled false stops every purge without touching the stored configurations.
+	Enabled bool `mapstructure:"enabled"`
+	// WorkerInterval is the delay between two runs of the purge task. Zero disables
+	// the task, which leaves jobs queued rather than losing them.
+	WorkerInterval time.Duration `mapstructure:"worker_interval" validate:"min=0"`
+	// AgentConvergenceTimeout is how long a job waits for the agents of the project
+	// to serve the published version before purging anyway. Purging earlier lets the
+	// CDN cache the old response again, straight from an agent that has not caught
+	// up; waiting forever would mean never purging when an agent is gone for good.
+	AgentConvergenceTimeout time.Duration `mapstructure:"agent_convergence_timeout" validate:"min=0"`
+	// MaxTargetsPerJob caps what a single publish may invalidate. Beyond it the job
+	// is recorded as skipped rather than purged: the alternative would be purging a
+	// whole hostname, which drops cached objects nobody changed. Zero lifts the cap.
+	MaxTargetsPerJob int `mapstructure:"max_targets_per_job" validate:"min=0"`
+	// HTTPTimeout bounds a single call to a CDN API.
+	HTTPTimeout time.Duration `mapstructure:"http_timeout" validate:"min=0"`
+	// JobRetention is how long finished jobs are kept for inspection. Zero keeps
+	// them forever.
+	JobRetention time.Duration `mapstructure:"job_retention" validate:"min=0"`
+}
+
+// SecurityConfig holds the material used to protect data at rest. It is
+// deliberately not tied to a feature: any value that must not sit in clear text
+// in the database is encrypted with this key.
+//
+// The key is optional. Without it the instance starts and serves everything that
+// needs no encryption, and the features that do report themselves as unavailable
+// rather than storing secrets in clear.
+type SecurityConfig struct {
+	// EncryptionKey is a 32 byte key, given as base64 (optionally prefixed with
+	// "base64:") or as "hex:...". Generate one with "flecto-manager security
+	// generate-key". Empty leaves encryption unconfigured.
+	EncryptionKey string `mapstructure:"encryption_key" validate:"omitempty,encryption_key"`
 }
 
 type MetricsConfig struct {
@@ -107,6 +149,14 @@ func DefaultConfig() *Config {
 		},
 		Metrics: MetricsConfig{
 			Enabled: false,
+		},
+		Cdn: CdnConfig{
+			Enabled:                 true,
+			WorkerInterval:          30 * time.Second,
+			AgentConvergenceTimeout: 30 * time.Minute,
+			MaxTargetsPerJob:        5000,
+			HTTPTimeout:             10 * time.Second,
+			JobRetention:            30 * 24 * time.Hour,
 		},
 	}
 }

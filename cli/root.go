@@ -8,6 +8,7 @@ import (
 
 	commonTypes "github.com/flectolab/flecto-manager/common/types"
 	"github.com/flectolab/flecto-manager/context"
+	"github.com/flectolab/flecto-manager/crypt"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -39,6 +40,7 @@ func GetRootCmd(ctx *context.Context) *cobra.Command {
 		GetStartCmd(ctx),
 		GetDBCmd(ctx),
 		GetUserCmd(ctx),
+		GetSecurityCmd(ctx),
 		GetVersionCmd(),
 		GetValidateCmd(ctx),
 	)
@@ -55,6 +57,10 @@ func GetRootPreRunEFn(ctx *context.Context, validateCfg bool) func(*cobra.Comman
 			return errValidate
 		}
 
+		if err = setupCrypt(ctx); err != nil {
+			return err
+		}
+
 		logLevelFlagStr, _ := cmd.Flags().GetString(LogLevel)
 		if logLevelFlagStr != "" {
 			level := slog.LevelInfo
@@ -66,6 +72,25 @@ func GetRootPreRunEFn(ctx *context.Context, validateCfg bool) func(*cobra.Comman
 		}
 		return nil
 	}
+}
+
+// setupCrypt builds the cipher from the configuration and wires it to GORM, so
+// that every command touching the database reads and writes encrypted columns the
+// same way. A missing key is not an error: the features needing one report
+// themselves as unavailable instead.
+func setupCrypt(ctx *context.Context) error {
+	cipher, err := crypt.NewFromKey(ctx.Config.Security.EncryptionKey)
+	if err != nil {
+		return err
+	}
+
+	ctx.Cipher = cipher
+	crypt.RegisterSerializer(cipher)
+
+	if crypt.IsUnavailable(cipher) {
+		ctx.Logger.Warn("no security.encryption_key configured, features storing secrets are disabled")
+	}
+	return nil
 }
 
 func initConfig(ctx *context.Context, cmd *cobra.Command) {

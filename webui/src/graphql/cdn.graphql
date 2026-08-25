@@ -1,0 +1,102 @@
+query GetCdnProviderTypes {
+  cdnProviderTypes {
+    type
+    label
+    doc
+    fields {
+      name
+      label
+      kind
+      required
+      help
+      placeholder
+      defaultValue
+      options {
+        value
+        label
+      }
+    }
+    capabilities {
+      url
+      prefix
+      hostname
+    }
+  }
+  cdnEncryptionAvailable
+}
+
+query GetProjectCdnConfigs($namespaceCode: String!, $projectCode: String!) {
+  projectCdnConfigs(namespaceCode: $namespaceCode, projectCode: $projectCode) {
+    id
+    name
+    type
+    enabled
+    settings
+    secretsSet
+    createdAt
+    updatedAt
+  }
+}
+
+mutation CreateProjectCdnConfig($namespaceCode: String!, $projectCode: String!, $input: CreateProjectCdnConfigInput!) {
+  createProjectCdnConfig(namespaceCode: $namespaceCode, projectCode: $projectCode, input: $input) {
+    id
+    name
+    type
+    enabled
+    settings
+    secretsSet
+  }
+}
+
+mutation UpdateProjectCdnConfig($namespaceCode: String!, $projectCode: String!, $name: String!, $input: UpdateProjectCdnConfigInput!) {
+  updateProjectCdnConfig(namespaceCode: $namespaceCode, projectCode: $projectCode, name: $name, input: $input) {
+    id
+    name
+    type
+    enabled
+    settings
+    secretsSet
+  }
+}
+
+mutation DeleteProjectCdnConfig($namespaceCode: String!, $projectCode: String!, $name: String!) {
+  deleteProjectCdnConfig(namespaceCode: $namespaceCode, projectCode: $projectCode, name: $name)
+}
+
+mutation TestProjectCdnConfig($namespaceCode: String!, $projectCode: String!, $name: String!) {
+  testProjectCdnConfig(namespaceCode: $namespaceCode, projectCode: $projectCode, name: $name) {
+    success
+    error
+  }
+}
+
+query GetProjectCdnPurgeJobs($namespaceCode: String!, $projectCode: String!, $limit: Int) {
+  projectCdnPurgeJobs(namespaceCode: $namespaceCode, projectCode: $projectCode, limit: $limit) {
+    id
+    cdnConfigName
+    cdnConfigType
+    projectVersion
+    status
+    requested
+    purged
+    failed
+    skipped
+    skipReason
+    waitedForAgents
+    attempts
+    error
+    deadlineAt
+    createdAt
+    startedAt
+    finishedAt
+  }
+}
+
+mutation PurgeProjectCdnUrls($namespaceCode: String!, $projectCode: String!, $name: String!, $urls: [String!]!) {
+  purgeProjectCdnUrls(namespaceCode: $namespaceCode, projectCode: $projectCode, name: $name, urls: $urls) {
+    id
+    status
+    requested
+  }
+}

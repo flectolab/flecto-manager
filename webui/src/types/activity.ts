@@ -24,6 +24,30 @@ export interface RedirectSnapshot {
 }
 
 /** A page snapshot never carries the page content, only its size. */
+/** Summary of one cache invalidation run against a CDN. */
+export interface ActivityCdnPurge {
+  config: string
+  type: string
+  status: string
+  version: number
+  requested: number
+  purged: number
+  failed: number
+  skipped?: Record<string, number>
+  skipReason?: string
+  waitedForAgents: boolean
+  durationMs: number
+  error?: string
+}
+
+/** Activity projection of a CDN configuration. Provider secrets never appear. */
+export interface CdnConfigSnapshot {
+  name: string
+  type: string
+  enabled: boolean
+  hosts?: string[]
+}
+
 export interface PageSnapshot {
   type: string
   path: string

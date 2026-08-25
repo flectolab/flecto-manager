@@ -12,6 +12,9 @@ import {
   TruncateProjectActivityDocument,
 } from '../../generated/graphql'
 import { ConfirmModal } from '../../components/redirects'
+import { ProjectCdnSection } from '../../components/cdn'
+
+type ProjectTab = 'general' | 'cdn'
 
 type TruncateTarget = 'redirects' | 'pages' | 'activity'
 
@@ -52,6 +55,9 @@ export function ProjectForm() {
   const isEditing = !!paramNamespaceCode && !!paramProjectCode
   useDocumentTitle(isEditing ? `Admin - Edit Project` : 'Admin - Add Project')
   const canWrite = canAdminResource(AdminSection.Projects, Action.Write)
+  // A CDN is configured against an existing project, so the tab only shows once
+  // the project has been created.
+  const [tab, setTab] = useState<ProjectTab>('general')
   const isReadOnly = isEditing && !canWrite
 
   const [namespaceCode, setNamespaceCode] = useState('')
@@ -282,7 +288,39 @@ export function ProjectForm() {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {isEditing && (
+        <div className="mb-6 border-b border-slate-200 dark:border-slate-700">
+          <nav className="-mb-px flex gap-6">
+            {([
+              { id: 'general', label: 'General' },
+              { id: 'cdn', label: 'CDN' },
+            ] as const).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setTab(item.id)}
+                className={`border-b-2 px-1 pb-3 text-sm font-medium transition-colors ${
+                  tab === item.id
+                    ? 'border-brand-purple text-brand-purple'
+                    : 'border-transparent text-slate-500 dark:text-slate-400 hover:border-slate-300 hover:text-slate-700 dark:hover:text-slate-300'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {isEditing && tab === 'cdn' && (
+        <ProjectCdnSection
+          namespaceCode={namespaceCode}
+          projectCode={projectCode}
+          canWrite={canWrite}
+        />
+      )}
+
+      <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 ${isEditing && tab !== 'general' ? 'hidden' : ''}`}>
         {/* Form */}
         <div className="lg:col-span-2">
           <form onSubmit={handleSubmit}>

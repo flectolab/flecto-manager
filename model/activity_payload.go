@@ -69,6 +69,55 @@ func NewPageSnapshot(page *commonTypes.Page, contentSize int64) *PageSnapshot {
 	}
 }
 
+// CdnConfigSnapshot is the activity projection of a CDN configuration. The
+// provider settings are deliberately left out beyond the hostnames: a journal
+// kept for months has no business holding a zone identifier, let alone anything
+// that came out of the secrets column.
+type CdnConfigSnapshot struct {
+	Name    string   `json:"name"`
+	Type    string   `json:"type"`
+	Enabled bool     `json:"enabled"`
+	Hosts   []string `json:"hosts,omitempty"`
+}
+
+// NewCdnConfigSnapshot projects a CDN configuration for the activity trail, nil
+// in, nil out.
+func NewCdnConfigSnapshot(config *ProjectCdnConfig) *CdnConfigSnapshot {
+	if config == nil {
+		return nil
+	}
+	return &CdnConfigSnapshot{
+		Name:    config.Name,
+		Type:    config.Type,
+		Enabled: config.IsEnabled(),
+		Hosts:   config.Hosts(),
+	}
+}
+
+// ActivityCdnPurge summarises one cache invalidation. It is the only record of
+// whether a publish actually reached the CDN, so it says what was left out as
+// well as what went through.
+type ActivityCdnPurge struct {
+	Config  string         `json:"config"`
+	Type    string         `json:"type"`
+	Status  CdnPurgeStatus `json:"status"`
+	Version int            `json:"version"`
+	// Requested, Purged and Failed count URLs, not requests.
+	Requested int `json:"requested"`
+	Purged    int `json:"purged"`
+	Failed    int `json:"failed"`
+	// Skipped breaks down the entries that produced no target at all, by reason.
+	Skipped map[string]int `json:"skipped,omitempty"`
+	// SkipReason is set when the whole job was turned away rather than sent.
+	SkipReason string `json:"skipReason,omitempty"`
+	// WaitedForAgents is false when the job gave up waiting for the agents to serve
+	// the published version and purged anyway, which means the CDN may have cached
+	// the previous response again.
+	WaitedForAgents bool   `json:"waitedForAgents"`
+	DurationMs      int64  `json:"durationMs"`
+	Error           string `json:"error,omitempty"`
+}
+
 // ActivityChange carries the before and after of a single-entry change. Before is nil
 // on a creation, After is nil on a deletion.
 type ActivityChange[T any] struct {

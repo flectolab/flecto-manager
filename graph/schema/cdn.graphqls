@@ -1,0 +1,173 @@
+# Provider configuration values, keyed by field name. The fields themselves are
+# described at runtime by CdnProviderDescriptor, which is what lets the admin UI
+# render a form for a provider it knows nothing about.
+scalar CdnValues
+
+enum CdnFieldKind {
+    TEXT
+    SECRET
+    BOOL
+    INT
+    SELECT
+    STRING_LIST
+}
+
+type CdnFieldOption {
+    value: String!
+    label: String!
+}
+
+type CdnField {
+    name: String!
+    label: String!
+    kind: CdnFieldKind!
+    required: Boolean!
+    help: String
+    placeholder: String
+    options: [CdnFieldOption!]
+    defaultValue: String
+}
+
+# What a provider is able to invalidate. Only url is used today: purging a prefix
+# or a whole hostname would drop cached objects nobody published a change for.
+type CdnCapabilities {
+    url: Boolean!
+    prefix: Boolean!
+    hostname: Boolean!
+}
+
+type CdnProviderDescriptor {
+    type: String!
+    label: String!
+    doc: String
+    fields: [CdnField!]!
+    capabilities: CdnCapabilities!
+}
+
+type ProjectCdnConfig {
+    id: Int64!
+    name: String!
+    type: String!
+    # A disabled configuration keeps its zone and its credentials, it simply stops
+    # receiving purge jobs.
+    enabled: Boolean!
+    # Provider values stored in clear. Secrets never appear here.
+    settings: CdnValues!
+    # Names of the secret fields that hold a value. Their content is never returned,
+    # not even to the user who set it.
+    secretsSet: [String!]!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+}
+
+input CreateProjectCdnConfigInput {
+    name: String!
+    type: String!
+    enabled: Boolean
+    # Every provider value, secrets included.
+    values: CdnValues!
+}
+
+input UpdateProjectCdnConfigInput {
+    enabled: Boolean
+    # Every provider value. A secret left out, or sent empty, keeps its stored
+    # value: the form never receives it, so it cannot send it back.
+    values: CdnValues!
+}
+
+enum CdnPurgeStatus {
+    """
+    Held back until the agents of the project serve the published version. Purging
+    before they do lets the CDN cache the previous response again.
+    """
+    WAITING_AGENTS
+    RUNNING
+    SUCCEEDED
+    """
+    Some batches went through and others did not, so the cache is in a mixed state.
+    """
+    PARTIAL
+    FAILED
+    """
+    Never sent: the configuration was disabled in the meantime, or the publish had
+    more targets than cdn.max_targets_per_job allows.
+    """
+    SKIPPED
+}
+
+type ProjectCdnPurgeJob {
+    id: Int64!
+    cdnConfigName: String!
+    cdnConfigType: String!
+    projectVersion: Int!
+    status: CdnPurgeStatus!
+    """
+    requested, purged and failed count URLs, not requests.
+    """
+    requested: Int!
+    purged: Int!
+    failed: Int!
+    """
+    Entries that produced no target at all, by reason.
+    """
+    skipped: CdnValues!
+    """
+    Set when the whole job was turned away rather than sent.
+    """
+    skipReason: String
+    """
+    False when the job gave up waiting for the agents and purged anyway, which
+    means the cache may hold the previous version again.
+    """
+    waitedForAgents: Boolean!
+    attempts: Int!
+    error: String
+    """
+    When a job waiting for the agents stops waiting and purges anyway. A later
+    publish folded into the job pushes it back, since the wait starts over from the
+    newer version. Only meaningful while the status is WAITING_AGENTS.
+    """
+    deadlineAt: DateTime!
+    createdAt: DateTime!
+    startedAt: DateTime
+    finishedAt: DateTime
+}
+
+# Outcome of a configuration test. A rejected credential is an expected answer of
+# the test button, not a server error, so it comes back as a result.
+type CdnTestResult {
+    success: Boolean!
+    error: String
+}
+
+# Reading and writing a CDN configuration needs administration rights on projects,
+# not resource rights on the project: it holds the credentials of a third-party
+# account.
+extend type Query {
+    # Provider types available, with the fields to configure each of them.
+    cdnProviderTypes: [CdnProviderDescriptor!]!
+    # Whether the instance can store secrets at all, which needs
+    # security.encryption_key to be configured.
+    cdnEncryptionAvailable: Boolean!
+    projectCdnConfigs(namespaceCode: String!, projectCode: String!): [ProjectCdnConfig!]!
+    projectCdnConfig(namespaceCode: String!, projectCode: String!, name: String!): ProjectCdnConfig
+    """
+    Purge history of the project, newest first.
+    """
+    projectCdnPurgeJobs(namespaceCode: String!, projectCode: String!, limit: Int): [ProjectCdnPurgeJob!]!
+}
+
+extend type Mutation {
+    createProjectCdnConfig(namespaceCode: String!, projectCode: String!, input: CreateProjectCdnConfigInput!): ProjectCdnConfig!
+    updateProjectCdnConfig(namespaceCode: String!, projectCode: String!, name: String!, input: UpdateProjectCdnConfigInput!): ProjectCdnConfig!
+    deleteProjectCdnConfig(namespaceCode: String!, projectCode: String!, name: String!): Boolean!
+    # Checks the credentials against the CDN API without invalidating anything.
+    testProjectCdnConfig(namespaceCode: String!, projectCode: String!, name: String!): CdnTestResult!
+    """
+    Queues a purge of the given URLs through one configuration, outside of any
+    publish. It is the way out when a purge was skipped or failed: the addresses
+    are given as they are served, and go through the same worker as a publish
+    would, agent convergence apart.
+    """
+    purgeProjectCdnUrls(namespaceCode: String!, projectCode: String!, name: String!, urls: [String!]!): ProjectCdnPurgeJob!
+}

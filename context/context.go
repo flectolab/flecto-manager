@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/flectolab/flecto-manager/config"
+	"github.com/flectolab/flecto-manager/crypt"
 	flectoValidator "github.com/flectolab/flecto-manager/validator"
 	"github.com/go-playground/validator/v10"
 )
@@ -21,6 +22,10 @@ type Context struct {
 
 	Config    *config.Config
 	Validator *validator.Validate
+	// Cipher protects the values stored encrypted in the database. It defaults to
+	// the unavailable cipher, so a context built before the configuration is read
+	// refuses to encrypt rather than silently storing clear text.
+	Cipher crypt.Cipher
 }
 
 func (c *Context) GetLogger() *slog.Logger {
@@ -56,6 +61,7 @@ func DefaultContext() *Context {
 		sigs:      sigs,
 		Config:    config.DefaultConfig(),
 		Validator: flectoValidator.New(),
+		Cipher:    crypt.NewUnavailable(),
 	}
 }
 
@@ -76,5 +82,6 @@ func TestContext(logBuffer io.Writer) *Context {
 		sigs:      sigs,
 		Config:    config.DefaultConfig(),
 		Validator: flectoValidator.New(),
+		Cipher:    crypt.NewUnavailable(),
 	}
 }

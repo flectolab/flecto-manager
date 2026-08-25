@@ -114,6 +114,40 @@ models:
   ActivityAction:
     model: github.com/flectolab/flecto-manager/model.ActivityAction
 
+  # CDN types
+  CdnValues:
+    model: github.com/flectolab/flecto-manager/cdn.Values
+  CdnProviderDescriptor:
+    model: github.com/flectolab/flecto-manager/cdn.Descriptor
+    fields:
+      fields:
+        resolver: false
+  CdnField:
+    model: github.com/flectolab/flecto-manager/cdn.Field
+    fields:
+      defaultValue:
+        resolver: true
+  CdnFieldKind:
+    model: github.com/flectolab/flecto-manager/cdn.FieldKind
+  CdnFieldOption:
+    model: github.com/flectolab/flecto-manager/cdn.Option
+  CdnCapabilities:
+    model: github.com/flectolab/flecto-manager/cdn.Capabilities
+  CdnPurgeStatus:
+    model: github.com/flectolab/flecto-manager/model.CdnPurgeStatus
+  ProjectCdnPurgeJob:
+    model: github.com/flectolab/flecto-manager/model.ProjectCdnPurgeJob
+    fields:
+      skipped:
+        resolver: true
+  ProjectCdnConfig:
+    model: github.com/flectolab/flecto-manager/model.ProjectCdnConfig
+    fields:
+      enabled:
+        resolver: true
+      secretsSet:
+        resolver: true
+
   # Types common
   PaginationInput:
     model: github.com/flectolab/flecto-manager/common/types.PaginationInput

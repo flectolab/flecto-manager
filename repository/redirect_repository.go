@@ -17,6 +17,10 @@ type RedirectRepository interface {
 	Search(ctx context.Context, query *gorm.DB) ([]model.Redirect, error)
 	SearchPaginate(ctx context.Context, query *gorm.DB, limit, offset int) ([]model.Redirect, int64, error)
 	SearchBatch(ctx context.Context, query *gorm.DB, batchSize int, fn func([]model.Redirect) error) error
+	// FindAddressesByIDs projects the type and source of published redirects. A
+	// publish needs them for the entries it is about to change or delete, and a
+	// projection is what keeps that read cheap on a large publish.
+	FindAddressesByIDs(ctx context.Context, tx *gorm.DB, ids []int64, batchSize int) ([]model.ResourceAddress, error)
 }
 
 type redirectRepository struct {
@@ -133,4 +137,12 @@ func (r *redirectRepository) SearchBatch(ctx context.Context, query *gorm.DB, ba
 		return fn(redirects)
 	})
 	return result.Error
+}
+
+func (r *redirectRepository) FindAddressesByIDs(ctx context.Context, tx *gorm.DB, ids []int64, batchSize int) ([]model.ResourceAddress, error) {
+	query := tx
+	if query == nil {
+		query = r.db.WithContext(ctx)
+	}
+	return findAddressesByIDs(query.Model(&model.Redirect{}), "source", ids, batchSize)
 }

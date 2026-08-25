@@ -1,6 +1,9 @@
 package service
 
 import (
+	// Registers the CDN providers with the cdn registry. They are looked up by
+	// type at runtime, so nothing references them directly.
+	_ "github.com/flectolab/flecto-manager/cdn/cloudflare"
 	appContext "github.com/flectolab/flecto-manager/context"
 	"github.com/flectolab/flecto-manager/jwt"
 	"github.com/flectolab/flecto-manager/repository"
@@ -21,12 +24,17 @@ type Services struct {
 	Agent            AgentService
 	ProjectDashboard ProjectDashboardService
 	Activity         ActivityService
+	ProjectCdn       ProjectCdnConfigService
+	CdnPurge         CdnPurgeService
+	CdnPurgeWorker   CdnPurgeWorker
 }
 
 func NewServices(ctx *appContext.Context, repos *repository.Repositories, jwtService *jwt.ServiceJWT) *Services {
 	activitySrv := NewActivityService(ctx, repos.ActivityEvent)
 	namespaceSrv := NewNamespaceService(ctx, repos.Namespace, repos.Project)
-	projectSrv := NewProjectService(ctx, repos.Project, repos.Page, repos.RedirectDraft, repos.PageDraft, activitySrv)
+	cdnPurgeSrv := NewCdnPurgeService(ctx, repos.ProjectCdn, repos.ProjectCdnJob, repos.Redirect, repos.Page, activitySrv)
+	cdnPurgeWorker := NewCdnPurgeWorker(ctx, repos.ProjectCdnJob, repos.ProjectCdn, repos.Agent, activitySrv)
+	projectSrv := NewProjectService(ctx, repos.Project, repos.Page, repos.RedirectDraft, repos.PageDraft, activitySrv, cdnPurgeSrv)
 	userSrv := NewUserService(ctx, repos.User, repos.Role)
 	authSrv := NewAuthService(ctx, repos.User, jwtService)
 	roleSrv := NewRoleService(ctx, repos.Role, repos.User)
@@ -37,6 +45,7 @@ func NewServices(ctx *appContext.Context, repos *repository.Repositories, jwtSer
 	pageSrv := NewPageService(ctx, repos.Page)
 	pageDraftSrv := NewPageDraftService(ctx, repos.PageDraft, repos.Page, activitySrv)
 	agentSrv := NewAgentService(ctx, repos.Agent)
+	projectCdnSrv := NewProjectCdnConfigService(ctx, repos.ProjectCdn, activitySrv)
 
 	projectDashboardSrv := NewProjectDashboardService(
 		ctx,
@@ -63,5 +72,8 @@ func NewServices(ctx *appContext.Context, repos *repository.Repositories, jwtSer
 		Agent:            agentSrv,
 		ProjectDashboard: projectDashboardSrv,
 		Activity:         activitySrv,
+		ProjectCdn:       projectCdnSrv,
+		CdnPurge:         cdnPurgeSrv,
+		CdnPurgeWorker:   cdnPurgeWorker,
 	}
 }

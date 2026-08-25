@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/flectolab/flecto-manager/config"
+	"github.com/flectolab/flecto-manager/crypt"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -30,6 +31,8 @@ func TestDefaultContext_Success(t *testing.T) {
 	got.sigs = nil
 	assert.NotNil(t, got.Validator)
 	got.Validator = nil
+	assert.True(t, crypt.IsUnavailable(got.Cipher))
+	got.Cipher = nil
 	assert.Equal(t, want, got)
 }
 
@@ -50,6 +53,8 @@ func TestTestContext(t *testing.T) {
 	got.sigs = nil
 	assert.NotNil(t, got.Validator)
 	got.Validator = nil
+	assert.True(t, crypt.IsUnavailable(got.Cipher))
+	got.Cipher = nil
 	assert.Equal(t, want, got)
 }
 
@@ -69,6 +74,8 @@ func TestTestContext_WithLogBuffer(t *testing.T) {
 	got.sigs = nil
 	assert.NotNil(t, got.Validator)
 	got.Validator = nil
+	assert.True(t, crypt.IsUnavailable(got.Cipher))
+	got.Cipher = nil
 	assert.Equal(t, want, got)
 }
 
