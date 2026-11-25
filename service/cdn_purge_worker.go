@@ -18,37 +18,27 @@ import (
 )
 
 const (
-	// cdnMaxAttempts bounds how many runs a job may fail temporarily before it is
-	// given up on. A rate limit or an outage clears in minutes; something failing
-	// this many times is not going to clear on its own.
+	// cdnMaxAttempts bounds consecutive temporary failures before a job is given up on.
 	cdnMaxAttempts = 5
-	// cdnJobsPerRun bounds how many jobs one run looks at, so a backlog is worked
-	// through steadily instead of in one long run that overruns its timeout.
+	// cdnJobsPerRun bounds the jobs of one run, so a backlog does not overrun its timeout.
 	cdnJobsPerRun = 20
-	// cdnErrorMaxLength bounds what is kept of a provider error, matching the column.
+	// cdnErrorMaxLength matches the size of the error column.
 	cdnErrorMaxLength = 1000
-	// cdnSaveTimeout bounds a save made after the run's own context ended.
+	// cdnSaveTimeout bounds a save made with a detached context.
 	cdnSaveTimeout = 5 * time.Second
 )
 
-// saveContext returns a context that outlives the run's: the moment a run runs out
-// of time is precisely when what it did has to be written down, and a cancelled
-// context makes the database refuse the write.
+// saveContext detaches from the run's context: progress must still be saved once
+// the run is out of time, and a cancelled context makes the database refuse it.
 func saveContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), cdnSaveTimeout)
 }
 
-// CdnPurgeWorker sends the queued invalidations.
-//
-// It is written to be interrupted: a run stops at the first sign that its context
-// is done, having saved how far it got, and the next one picks the job back up
-// from there. That is what lets a purge of fifty thousand URLs live inside a
-// scheduler task whose runs are short.
+// CdnPurgeWorker sends the queued invalidations. A run stops when its context
+// ends, having saved its progress, and the next run resumes from there.
 type CdnPurgeWorker interface {
-	// Run advances every job it can until the context ends, and reports how many it
-	// finished.
+	// Run advances jobs until the context ends and returns how many it finished.
 	Run(ctx context.Context) (int, error)
-	// PurgeExpiredJobs drops the finished jobs older than the configured retention.
 	PurgeExpiredJobs(ctx context.Context) (int64, error)
 }
 
@@ -59,10 +49,8 @@ type cdnPurgeWorker struct {
 	agentRepo  repository.AgentRepository
 	activity   ActivityService
 
-	// limiters are kept per configuration, built from what its provider declares.
-	// Two configurations pointing at the same CDN account share the real quota,
-	// which this cannot see; jobs run one at a time, so the aggregate stays close
-	// enough to the slowest of them.
+	// limiters are per configuration: two configurations on the same CDN account
+	// share a quota this cannot see, acceptable since jobs run one at a time.
 	limitersMutex sync.Mutex
 	limiters      map[int64]*rate.Limiter
 }
@@ -92,9 +80,7 @@ func (w *cdnPurgeWorker) Run(ctx context.Context) (int, error) {
 	jobs, err := w.jobRepo.FindActive(ctx, cdnJobsPerRun)
 	if err != nil {
 		if ctx.Err() != nil {
-			// Cut short by a shutdown or by the run's own timeout. A big backlog hits
-			// that on every run by design, so reporting it as a failure would make the
-			// task's error metric say nothing.
+			// Cut short by shutdown or timeout: expected with a backlog, not a failure.
 			return 0, nil
 		}
 		return 0, err
@@ -103,14 +89,11 @@ func (w *cdnPurgeWorker) Run(ctx context.Context) (int, error) {
 	finished := 0
 	for i := range jobs {
 		if ctx.Err() != nil {
-			// Out of time. What is done is saved, the next run resumes.
 			return finished, nil
 		}
 
 		done, errJob := w.advance(ctx, &jobs[i])
 		if errJob != nil {
-			// One job failing must not hold back the others: it is recorded on the
-			// job itself and the run carries on.
 			w.ctx.Logger.Error("cdn purge job failed",
 				"namespace", jobs[i].NamespaceCode, "project", jobs[i].ProjectCode,
 				"config", jobs[i].CdnConfigName, "job", jobs[i].ID, "error", errJob)
@@ -124,15 +107,14 @@ func (w *cdnPurgeWorker) Run(ctx context.Context) (int, error) {
 	return finished, nil
 }
 
-// advance moves one job forward and reports whether it reached a terminal state.
+// advance reports whether the job reached a terminal state.
 func (w *cdnPurgeWorker) advance(ctx context.Context, job *model.ProjectCdnPurgeJob) (bool, error) {
 	config, err := w.configRepo.FindByName(ctx, job.NamespaceCode, job.ProjectCode, job.CdnConfigName)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return false, err
 	}
 
-	// A configuration disabled or removed between the publish and the purge is an
-	// explicit answer, not a failure: someone turned it off on purpose.
+	// Disabled or removed since the publish: on purpose, so skipped rather than failed.
 	if config == nil || !config.IsEnabled() {
 		return true, w.finish(ctx, job, model.CdnPurgeStatusSkipped, model.CdnPurgeSkipReasonConfigDisabled, nil)
 	}
@@ -146,9 +128,8 @@ func (w *cdnPurgeWorker) advance(ctx context.Context, job *model.ProjectCdnPurge
 			return false, nil
 		}
 
-		// Conditional on the job being as it was read: a publish merging into it in
-		// the meantime brought targets this copy does not have, and a version the
-		// agents were not checked against. The next run looks at it again.
+		// Conditional on the job being as read: a concurrent publish merge brought
+		// targets and a version this copy lacks. The next run looks at it again.
 		started, errStart := w.jobRepo.MarkRunning(ctx, job, time.Now(), waited)
 		if errStart != nil || !started {
 			return false, errStart
@@ -163,12 +144,9 @@ func (w *cdnPurgeWorker) advance(ctx context.Context, job *model.ProjectCdnPurge
 	return w.send(ctx, job, provider)
 }
 
-// readyToPurge reports whether the agents of the project are serving the version
-// the job was queued for, and whether that was reached by waiting or by giving up.
-//
-// Purging before they catch up is worse than not purging at all: the CDN goes
-// straight back to an agent that still answers with the old redirect and caches it
-// again, which looks exactly like a purge that silently did nothing.
+// readyToPurge reports whether the agents serve the job's version, and whether that
+// was reached by waiting or by giving up. Purging earlier lets the CDN re-cache the
+// old response from a lagging agent.
 func (w *cdnPurgeWorker) readyToPurge(ctx context.Context, job *model.ProjectCdnPurgeJob) (ready, waited bool, err error) {
 	agents, err := w.agentRepo.FindByProject(ctx, job.NamespaceCode, job.ProjectCode)
 	if err != nil {
@@ -189,7 +167,6 @@ func (w *cdnPurgeWorker) readyToPurge(ctx context.Context, job *model.ProjectCdn
 		}
 	}
 
-	// No agent to wait for: nothing is going to serve the old response back.
 	if online == 0 || behind == 0 {
 		return true, true, nil
 	}
@@ -205,21 +182,15 @@ func (w *cdnPurgeWorker) readyToPurge(ctx context.Context, job *model.ProjectCdn
 	return true, false, nil
 }
 
-// send pushes the remaining batches until the job is done or the run is out of
-// time.
 func (w *cdnPurgeWorker) send(ctx context.Context, job *model.ProjectCdnPurgeJob, provider cdn.Provider) (bool, error) {
 	limits := provider.Limits()
 	limiter := w.limiter(job.CdnConfigID, limits)
 
 	for _, batch := range cdn.Batch(job.Remaining(), limits.MaxTargetsPerRequest) {
 		if ctx.Err() != nil {
-			// Out of time. Progress is saved after every batch, so the next run
-			// resumes from here.
 			return false, nil
 		}
 
-		// WaitN blocks for the time the quota needs, and returns as soon as the
-		// context ends rather than sleeping through a shutdown.
 		if err := limiter.WaitN(ctx, len(batch)); err != nil {
 			return false, nil
 		}
@@ -228,13 +199,10 @@ func (w *cdnPurgeWorker) send(ctx context.Context, job *model.ProjectCdnPurgeJob
 		if err == nil {
 			job.Cursor += len(batch)
 			job.Purged += len(batch)
-			// cdnMaxAttempts bounds a streak of failures, not the failures of a whole
-			// job: a long purge meeting a few rate limits far apart is healthy.
+			// cdnMaxAttempts bounds a streak of failures, not those of a whole job.
 			job.Attempts = 0
 			job.Error = ""
-			// Saved batch by batch: a run cut short, or a process killed, then
-			// resends at most one batch instead of the whole job, and the history
-			// shows the purge moving.
+			// Saved per batch: an interrupted run resends at most one batch.
 			if errSave := w.persistProgress(ctx, job); errSave != nil {
 				return false, errSave
 			}
@@ -251,16 +219,14 @@ func (w *cdnPurgeWorker) send(ctx context.Context, job *model.ProjectCdnPurgeJob
 	return true, w.finish(ctx, job, status, "", nil)
 }
 
-// handlePurgeError decides what a rejected batch means for the job.
 func (w *cdnPurgeWorker) handlePurgeError(
 	ctx context.Context,
 	job *model.ProjectCdnPurgeJob,
 	err error,
 ) (bool, error) {
 	if ctx.Err() != nil {
-		// The run ended mid-request: the provider did nothing wrong, so it costs
-		// no attempt. The batch is sent again next run, which is harmless since a
-		// purge is idempotent.
+		// The run ended mid-request: no attempt is counted, and resending the batch
+		// next run is harmless since a purge is idempotent.
 		return false, nil
 	}
 
@@ -269,8 +235,7 @@ func (w *cdnPurgeWorker) handlePurgeError(
 	if _, temporary := cdn.AsTemporary(err); temporary {
 		job.Attempts++
 		if job.Attempts < cdnMaxAttempts {
-			// Leave the cursor where it is and come back next run: a purge is
-			// idempotent, so resending the batch costs nothing but quota.
+			// Cursor kept: the batch is resent next run, a purge being idempotent.
 			w.ctx.Logger.Warn("cdn purge batch deferred",
 				"namespace", job.NamespaceCode, "project", job.ProjectCode, "config", job.CdnConfigName,
 				"job", job.ID, "attempt", job.Attempts, "error", err)
@@ -278,10 +243,8 @@ func (w *cdnPurgeWorker) handlePurgeError(
 		}
 	}
 
-	// Either it failed for good, or it kept failing. Both mean the rest of the job
-	// would fail the same way - a bad credential does not fix itself between two
-	// batches - so the remaining targets are counted as failed rather than retried
-	// one by one.
+	// Permanent or repeated failure: the rest would fail the same way, so the
+	// remaining targets are counted as failed rather than retried.
 	job.Failed += len(job.Remaining())
 	job.Cursor = len(job.Targets)
 
@@ -293,9 +256,8 @@ func (w *cdnPurgeWorker) handlePurgeError(
 	return true, w.finish(ctx, job, status, "", err)
 }
 
-// finish closes a job and records what happened. The activity entry is the only
-// place a failed purge surfaces, so it is written even when the job failed to
-// reach the provider at all.
+// finish closes a job and journals it, even when the provider was never reached:
+// the activity entry is the only place a failed purge surfaces.
 func (w *cdnPurgeWorker) finish(
 	ctx context.Context,
 	job *model.ProjectCdnPurgeJob,
@@ -311,14 +273,11 @@ func (w *cdnPurgeWorker) finish(
 		job.Error = truncateError(cause.Error())
 	}
 
-	// The addresses of a purge that went through are of no use to anyone, and a
-	// publish of fifty thousand URLs would keep them forever.
+	// Targets of a completed purge are useless and can be large.
 	if status == model.CdnPurgeStatusSucceeded || status == model.CdnPurgeStatusSkipped {
 		job.Targets = nil
 	}
 
-	// A job can finish on the very last instant of a run: its outcome is saved and
-	// journaled all the same.
 	ctx, cancel := saveContext(ctx)
 	defer cancel()
 
@@ -334,7 +293,6 @@ func (w *cdnPurgeWorker) finish(
 	return nil
 }
 
-// persistProgress saves how far a job got, even when the run is out of time.
 func (w *cdnPurgeWorker) persistProgress(ctx context.Context, job *model.ProjectCdnPurgeJob) error {
 	saveCtx, cancel := saveContext(ctx)
 	defer cancel()
@@ -349,9 +307,8 @@ func skippedTotal(skipped map[string]int) int {
 	return total
 }
 
-// recordCdnPurgeOutcome counts a finished job in the metrics and journals it. It
-// serves both the worker and a publish turning a job away on the spot, so that
-// every job that ends shows up in the same two places, whoever ended it.
+// recordCdnPurgeOutcome counts a finished job in the metrics and journals it,
+// for both the worker and a publish that turns a job away.
 func recordCdnPurgeOutcome(
 	ctx context.Context,
 	appCtx *appContext.Context,
@@ -387,16 +344,13 @@ func recordCdnPurgeOutcome(
 		},
 	})
 	if err != nil {
-		// The purge already happened; failing to journal it must not undo anything.
 		appCtx.Logger.Error("failed to record cdn purge activity",
 			"namespace", job.NamespaceCode, "project", job.ProjectCode, "job", job.ID, "error", err)
 	}
 }
 
-// limiter returns the rate limiter of a configuration, built from what its
-// provider allows. Cloudflare counts its single-file purge quota in URLs per
-// second rather than in requests, which is why the limiter is fed the size of the
-// batch and not one token per call.
+// limiter returns the rate limiter of a configuration. It counts targets, not
+// requests, as Cloudflare's purge quota is in URLs per second.
 func (w *cdnPurgeWorker) limiter(configID int64, limits cdn.Limits) *rate.Limiter {
 	w.limitersMutex.Lock()
 	defer w.limitersMutex.Unlock()
@@ -413,8 +367,7 @@ func (w *cdnPurgeWorker) limiter(configID int64, limits cdn.Limits) *rate.Limite
 	if burst <= 0 {
 		burst = perSecond
 	}
-	// The burst has to hold a whole batch, otherwise WaitN can never be satisfied
-	// and the job would block forever on its first send.
+	// The burst must hold a whole batch, or WaitN can never be satisfied.
 	if burst < limits.MaxTargetsPerRequest {
 		burst = limits.MaxTargetsPerRequest
 	}
@@ -433,12 +386,10 @@ func (w *cdnPurgeWorker) PurgeExpiredJobs(ctx context.Context) (int64, error) {
 	return w.jobRepo.DeleteFinishedBefore(ctx, time.Now().Add(-retention), cdnJobRetentionBatchSize)
 }
 
-// cdnJobRetentionBatchSize bounds a single delete statement of the retention pass.
 const cdnJobRetentionBatchSize = 500
 
-// truncateError cuts a message to the column size, on a character boundary: half
-// of a multi-byte character is invalid UTF-8, which a strict MySQL refuses to
-// store, and the job could then never be saved as finished.
+// truncateError cuts on a character boundary: invalid UTF-8 is refused by a
+// strict MySQL, and the job could then never be saved.
 func truncateError(message string) string {
 	if len(message) <= cdnErrorMaxLength {
 		return message

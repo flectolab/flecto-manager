@@ -24,7 +24,6 @@ func validSecrets() cdn.Values {
 	return cdn.Values{fieldAPIToken: "cf-token"}
 }
 
-// newTestProvider builds a provider talking to a stub API.
 func newTestProvider(t *testing.T, handler http.HandlerFunc) *Provider {
 	t.Helper()
 
@@ -139,8 +138,6 @@ func TestProvider_Capabilities(t *testing.T) {
 	got := provider.Capabilities()
 
 	assert.True(t, got.Supports(cdn.KindURL))
-	// Prefix and hostname purges exist on every Cloudflare plan but are not offered:
-	// they drop cached objects nobody published a change for.
 	assert.False(t, got.Supports(cdn.KindPrefix))
 	assert.False(t, got.Supports(cdn.KindHostname))
 }
@@ -160,8 +157,7 @@ func TestProvider_Verify(t *testing.T) {
 	})
 
 	t.Run("successFallsBackWhenTokenCannotReadZone", func(t *testing.T) {
-		// The recommended token scope is Cache Purge alone, which cannot read the
-		// zone. Verifying the token is then the best the API allows.
+		// A Cache Purge-only token cannot read the zone.
 		var paths []string
 		provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
 			paths = append(paths, r.URL.Path)

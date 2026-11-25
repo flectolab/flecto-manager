@@ -1,5 +1,8 @@
 name: Deploy Documentation
 
+# Builds the documentation of main, with its released versions
+# (docs/versioned_docs), and publishes it to GitHub Pages. docs-version.yml
+# starts it (workflow_dispatch) after it commits the version of a tag.
 on:
   push:
     branches:
@@ -7,7 +10,6 @@ on:
     paths:
       - 'docs/**'
   workflow_dispatch:
-  workflow_call:
 
 permissions:
   pages: write
@@ -26,8 +28,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: main
 
       - name: Read .nvmrc
         run: echo "NODE_VERSION=$(cat .nvmrc)" >> $GITHUB_ENV

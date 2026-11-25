@@ -38,8 +38,7 @@ export function CdnPurgeHistory({ namespaceCode, projectCode }: CdnPurgeHistoryP
   const { data, loading } = useQuery(GetProjectCdnPurgeJobsDocument, {
     variables: { namespaceCode, projectCode, limit: 20 },
     fetchPolicy: 'cache-and-network',
-    // A job moves on its own in the background, so what was fetched a minute ago
-    // is not what is true now.
+    // Jobs progress in the background.
     pollInterval: 15000,
   })
 
@@ -123,7 +122,6 @@ export function CdnPurgeHistory({ namespaceCode, projectCode }: CdnPurgeHistoryP
   )
 }
 
-/** skippedLabel renders the entries that produced no URL at all, by reason. */
 function skippedLabel(skipped: unknown): string {
   if (!skipped || typeof skipped !== 'object') return ''
 
@@ -135,10 +133,7 @@ function skippedLabel(skipped: unknown): string {
     .join(' · ')}`
 }
 
-/**
- * deadlineLabel says when a job waiting for the agents purges anyway. The clock
- * time stays right between two polls; the remaining delay is what people read.
- */
+/** Shows the clock time, which stays right between two polls, plus the remaining delay. */
 function deadlineLabel(deadlineAt: string): string {
   const deadline = new Date(deadlineAt)
   const at = deadline.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })

@@ -16,45 +16,31 @@ import (
 	"gorm.io/gorm"
 )
 
-// cdnAddressBatchSize bounds an IN clause reading the addresses a publish is
-// about to change, for the same reason the publish batches its own statements.
+// cdnAddressBatchSize bounds the IN clause reading the addresses a publish changes.
 const cdnAddressBatchSize = 500
 
 type CdnPurgeService interface {
-	// Collect reads what a publish is about to invalidate, and through which
-	// configurations. It runs before the transaction, because a publish deletes the
-	// rows that say what a removed entry used to serve.
-	//
-	// A project with no enabled configuration costs one query and nothing else.
+	// Collect reads what a publish will invalidate. It runs before the transaction,
+	// which deletes the rows saying what a removed entry used to serve.
 	Collect(ctx context.Context, namespaceCode, projectCode string, changes model.CdnDraftChanges) (model.CdnPublishPlan, error)
-	// Enqueue records the purges of a publish, one job per configuration. It runs
-	// inside the publish transaction: a purge must not outlive a rolled back
-	// publish, nor be lost by one that went through.
+	// Enqueue queues one job per configuration, inside the publish transaction.
 	Enqueue(ctx context.Context, tx *gorm.DB, plan model.CdnPublishPlan, projectVersion int) error
-	// PurgeURLs queues a purge of explicit URLs, outside of any publish. It is the
-	// way out when a purge was skipped or failed: the addresses are given as they
-	// are served, and go through the same worker.
+	// PurgeURLs queues a manual purge of explicit URLs, outside of any publish.
 	PurgeURLs(ctx context.Context, namespaceCode, projectCode, configName string, urls []string) (*model.ProjectCdnPurgeJob, error)
 	// History returns the purge jobs of a project, newest first.
 	History(ctx context.Context, namespaceCode, projectCode string, limit int) ([]model.ProjectCdnPurgeJob, error)
 }
 
 var (
-	// ErrCdnConfigDisabled is returned when a manual purge targets a configuration
-	// that is turned off. Queueing a job the worker would immediately skip would
-	// look like it worked.
+	// ErrCdnConfigDisabled is returned when a manual purge targets a disabled configuration.
 	ErrCdnConfigDisabled = errors.New("cdn configuration is disabled")
-	// ErrCdnNothingToPurge is returned when none of the submitted URLs can be sent
-	// through that configuration.
+	// ErrCdnNothingToPurge is returned when none of the URLs can go through the configuration.
 	ErrCdnNothingToPurge = errors.New("none of the given urls can be purged through this configuration")
-	// ErrCdnPurgeDisabled is returned when the instance sends no purge at all
-	// (cdn.enabled off, or cdn.worker_interval at 0). The job would sit in the queue
-	// with nothing to ever send it, while the caller is told it was queued.
+	// ErrCdnPurgeDisabled is returned when no worker would ever send the job
+	// (cdn.enabled off, or cdn.worker_interval at 0).
 	ErrCdnPurgeDisabled = errors.New("cdn purge is disabled on this instance")
 )
 
-// cdnHistoryDefaultLimit bounds the purge history returned by default, which is
-// read by a page showing the last runs and not by anything paginating.
 const cdnHistoryDefaultLimit = 50
 
 type cdnPurgeService struct {
@@ -164,7 +150,6 @@ func (s *cdnPurgeService) enqueueOne(
 		if errMerge != nil || merged {
 			return errMerge
 		}
-		// Not merged: this publish gets a job of its own, below.
 	}
 
 	job := &model.ProjectCdnPurgeJob{
@@ -188,10 +173,7 @@ func (s *cdnPurgeService) enqueueOne(
 	}
 
 	if job.Status.IsTerminal() {
-		// A job turned away here never reaches the worker, which is what records
-		// the others: without this, a publish too large to purge would leave no
-		// trace outside of a log line. The journal entry is written in the publish
-		// transaction, so it goes away with a publish that rolls back.
+		// Turned away here, the job never reaches the worker that journals the others.
 		recordCdnPurgeOutcome(ctx, s.ctx, s.activity, tx, job)
 	}
 
@@ -202,16 +184,10 @@ func (s *cdnPurgeService) enqueueOne(
 	return nil
 }
 
-// merge folds a new publish into a job that has not started, and reports whether
-// it did. Waiting up to half an hour for the agents means several publishes can
-// pile up on the same project, and two purges of overlapping URLs are one purge of
-// their union.
-//
-// It declines in two cases, and the publish then gets a job of its own:
-//   - the union would exceed the cap. Turning the merged job away would drop the
-//     purge of the earlier publish, which was within bounds on its own;
-//   - the job was started by a worker, or merged into by another publish, since it
-//     was read. Adding to it then would either be lost or come too late.
+// merge folds a publish into a job still waiting for agents, and reports whether
+// it did. It declines, leaving the publish its own job, when the union would
+// exceed the cap (capping it would drop the earlier, valid purge) or when the
+// job changed since it was read.
 func (s *cdnPurgeService) merge(
 	ctx context.Context,
 	tx *gorm.DB,
@@ -233,8 +209,7 @@ func (s *cdnPurgeService) merge(
 	job.Requested = len(job.Targets)
 	job.AddSkipped(purge.Skipped)
 
-	// The job now covers the newer publish, so that is the version the agents have
-	// to be serving, and the wait starts over from it.
+	// The agents must now serve the newer version; the wait starts over.
 	job.ProjectVersion = projectVersion
 	job.DeadlineAt = deadline
 
@@ -255,10 +230,7 @@ func (s *cdnPurgeService) merge(
 	return true, nil
 }
 
-// applyCap turns away a job larger than the configured cap. Purging that much one
-// URL at a time would take long enough to be pointless, and the alternatives -
-// purging a prefix or a whole hostname - drop cached objects nobody changed. Saying
-// so plainly leaves the decision to someone who can see the whole picture.
+// applyCap skips a job larger than the configured cap.
 func (s *cdnPurgeService) applyCap(job *model.ProjectCdnPurgeJob) {
 	max := s.ctx.Config.Cdn.MaxTargetsPerJob
 	if max <= 0 || len(job.Targets) <= max {
@@ -276,8 +248,7 @@ func (s *cdnPurgeService) applyCap(job *model.ProjectCdnPurgeJob) {
 	job.FinishedAt = &now
 }
 
-// unionTargets merges two target lists, keeping the order stable so a job's
-// batches stay reproducible across a restart.
+// unionTargets keeps the order stable so batches are reproducible across a restart.
 func unionTargets(current, incoming []cdn.Target) []cdn.Target {
 	if len(incoming) == 0 {
 		return current
@@ -347,10 +318,8 @@ func (s *cdnPurgeService) PurgeURLs(
 		CdnConfigID:   config.ID,
 		CdnConfigName: config.Name,
 		CdnConfigType: config.Type,
-		// A manual purge answers to no publish, so there is no version for the agents
-		// to converge on. It is queued straight as running: the worker only checks
-		// the agents of a waiting job, and the history does not claim it waits for
-		// anyone. Its duration then counts the time spent in the queue.
+		// No publish, so no version for the agents to converge on: queued straight
+		// as running. Its duration then includes the time spent in the queue.
 		ProjectVersion:  0,
 		Status:          model.CdnPurgeStatusRunning,
 		Targets:         targets,
@@ -371,9 +340,8 @@ func (s *cdnPurgeService) PurgeURLs(
 	return job, nil
 }
 
-// planManualTargets turns submitted URLs into targets, applying the same routing
-// rule as a publish: a URL whose host this configuration does not serve belongs to
-// another zone, and sending it there fails the whole batch it lands in.
+// planManualTargets turns URLs into targets. A host the configuration does not
+// serve belongs to another zone, and would fail the whole batch.
 func planManualTargets(planner *cdn.Planner, urls []string) ([]cdn.Target, map[cdn.SkipReason]int) {
 	skipped := map[cdn.SkipReason]int{}
 	seen := map[cdn.Target]struct{}{}
@@ -392,8 +360,7 @@ func planManualTargets(planner *cdn.Planner, urls []string) ([]cdn.Target, map[c
 			continue
 		}
 
-		// RequestURI keeps the query string and the encoding as submitted: the
-		// cache holds "/promo?a=1" apart from "/promo".
+		// RequestURI keeps the query string and encoding: the cache keys on them.
 		for _, path := range cdn.PathVariants(parsed.RequestURI()) {
 			target := cdn.Target{Kind: cdn.KindURL, Host: host, Path: path}
 			if _, ok := seen[target]; ok {
@@ -408,8 +375,6 @@ func planManualTargets(planner *cdn.Planner, urls []string) ([]cdn.Target, map[c
 	return targets, skipped
 }
 
-// describeSkipped renders why nothing could be purged, so the answer is actionable
-// rather than a bare refusal.
 func describeSkipped(skipped map[cdn.SkipReason]int) string {
 	reasons := make([]string, 0, len(skipped))
 	for _, reason := range []cdn.SkipReason{cdn.SkipReasonInvalid, cdn.SkipReasonNoHostMatch} {

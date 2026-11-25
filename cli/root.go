@@ -74,10 +74,8 @@ func GetRootPreRunEFn(ctx *context.Context, validateCfg bool) func(*cobra.Comman
 	}
 }
 
-// setupCrypt builds the cipher from the configuration and wires it to GORM, so
-// that every command touching the database reads and writes encrypted columns the
-// same way. A missing key is not an error: the features needing one report
-// themselves as unavailable instead.
+// setupCrypt builds the cipher from the configuration and wires it to GORM. A
+// missing key is not an error.
 func setupCrypt(ctx *context.Context) error {
 	cipher, err := crypt.NewFromKey(ctx.Config.Security.EncryptionKey)
 	if err != nil {

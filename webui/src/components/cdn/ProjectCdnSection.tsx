@@ -18,14 +18,10 @@ type TestOutcome = { success: boolean; error?: string | null }
 interface ProjectCdnSectionProps {
   namespaceCode: string
   projectCode: string
-  /** Comes from the project administration rights, which is what gates this section. */
   canWrite: boolean
 }
 
-/**
- * Lists and edits the CDN configurations of one project. It lives in the admin
- * section because a configuration holds the credentials of a third-party account.
- */
+/** Lives in the admin section because a configuration holds third-party credentials. */
 export function ProjectCdnSection({ namespaceCode, projectCode, canWrite }: ProjectCdnSectionProps) {
   const [editing, setEditing] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)

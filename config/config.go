@@ -19,42 +19,28 @@ type Config struct {
 }
 
 // CdnConfig bounds the cache invalidation done on publish.
-//
-// The feature is inert until a project declares a CDN configuration, so the
-// switch here is an operational kill switch rather than the way it is turned on.
 type CdnConfig struct {
-	// Enabled false stops every purge without touching the stored configurations.
+	// Enabled is a kill switch: false stops every purge.
 	Enabled bool `mapstructure:"enabled"`
-	// WorkerInterval is the delay between two runs of the purge task. Zero disables
-	// the task, which leaves jobs queued rather than losing them.
+	// WorkerInterval is the delay between purge task runs; zero disables the task.
 	WorkerInterval time.Duration `mapstructure:"worker_interval" validate:"min=0"`
-	// AgentConvergenceTimeout is how long a job waits for the agents of the project
-	// to serve the published version before purging anyway. Purging earlier lets the
-	// CDN cache the old response again, straight from an agent that has not caught
-	// up; waiting forever would mean never purging when an agent is gone for good.
+	// AgentConvergenceTimeout is how long a job waits for the agents to serve the
+	// published version before purging anyway.
 	AgentConvergenceTimeout time.Duration `mapstructure:"agent_convergence_timeout" validate:"min=0"`
-	// MaxTargetsPerJob caps what a single publish may invalidate. Beyond it the job
-	// is recorded as skipped rather than purged: the alternative would be purging a
-	// whole hostname, which drops cached objects nobody changed. Zero lifts the cap.
+	// MaxTargetsPerJob caps the URLs of one job; beyond it the job is skipped. Zero
+	// lifts the cap.
 	MaxTargetsPerJob int `mapstructure:"max_targets_per_job" validate:"min=0"`
 	// HTTPTimeout bounds a single call to a CDN API.
 	HTTPTimeout time.Duration `mapstructure:"http_timeout" validate:"min=0"`
-	// JobRetention is how long finished jobs are kept for inspection. Zero keeps
-	// them forever.
+	// JobRetention is how long finished jobs are kept; zero keeps them forever.
 	JobRetention time.Duration `mapstructure:"job_retention" validate:"min=0"`
 }
 
-// SecurityConfig holds the material used to protect data at rest. It is
-// deliberately not tied to a feature: any value that must not sit in clear text
-// in the database is encrypted with this key.
-//
-// The key is optional. Without it the instance starts and serves everything that
-// needs no encryption, and the features that do report themselves as unavailable
-// rather than storing secrets in clear.
+// SecurityConfig holds the material used to protect data at rest. Without a key,
+// features storing secrets report themselves as unavailable.
 type SecurityConfig struct {
-	// EncryptionKey is a 32 byte key, given as base64 (optionally prefixed with
-	// "base64:") or as "hex:...". Generate one with "flecto-manager security
-	// generate-key". Empty leaves encryption unconfigured.
+	// EncryptionKey is a 32 byte key, base64 or "hex:...", generated with
+	// "flecto-manager security generate-key". Changing it loses existing secrets.
 	EncryptionKey string `mapstructure:"encryption_key" validate:"omitempty,encryption_key"`
 }
 

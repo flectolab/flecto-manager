@@ -8,8 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// serializerRow exercises the serializer on both a plain string and a structured
-// field, since the value is JSON encoded before being sealed.
+// serializerRow covers both a plain string and a structured field.
 type serializerRow struct {
 	ID     int64             `gorm:"primaryKey;autoIncrement"`
 	Secret string            `gorm:"serializer:encrypted"`
@@ -74,8 +73,7 @@ func TestRegisterSerializer(t *testing.T) {
 		payload, err := EncryptString(retired, "cf-api-token")
 		assert.NoError(t, err)
 
-		// The column holds a value sealed with a key the current cipher does not
-		// know, which is what a key rotated out too early looks like.
+		// Sealed with a key the current cipher does not know.
 		db := setupSerializerTestDB(t, newTestCipher(t))
 		assert.NoError(t, db.Exec("INSERT INTO serializer_rows (secret, extra, plain) VALUES (?, '', 'x')", payload).Error)
 
@@ -89,7 +87,7 @@ func TestRegisterSerializer(t *testing.T) {
 func setupSerializerTestDB(t *testing.T, c Cipher) *gorm.DB {
 	t.Helper()
 
-	// The registry is global to GORM, so each case installs the cipher it needs.
+	// The GORM registry is global, so each case installs its own cipher.
 	RegisterSerializer(c)
 
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

@@ -12,20 +12,16 @@ import (
 // SerializerName is the name to put in a GORM tag to encrypt a column:
 //
 //	Secret string `gorm:"serializer:encrypted"`
-//
-// It is registered once at boot by RegisterSerializer.
 const SerializerName = "encrypted"
 
-// Serializer encrypts a field on its way to the database and decrypts it on the
-// way back. The value is JSON encoded first, so it works for any field type, not
-// just strings.
+// Serializer encrypts a field on write and decrypts it on read. The value is
+// JSON encoded first, so any field type works.
 type Serializer struct {
 	Cipher Cipher
 }
 
-// RegisterSerializer wires the "encrypted" serializer to a cipher. GORM keeps
-// serializers in a global registry, so this is called once, at startup, right
-// after the cipher is built.
+// RegisterSerializer wires the "encrypted" serializer to a cipher in GORM's
+// global registry.
 func RegisterSerializer(c Cipher) {
 	schema.RegisterSerializer(SerializerName, Serializer{Cipher: c})
 }
@@ -51,8 +47,7 @@ func (s Serializer) Scan(ctx context.Context, field *schema.Field, dst reflect.V
 		}
 	}
 
-	// A NULL or empty column leaves the zero value in place: a row written before
-	// the field existed must not fail to load.
+	// A NULL or empty column (row older than the field) leaves the zero value.
 	field.ReflectValueOf(ctx, dst).Set(fieldValue.Elem())
 	return nil
 }

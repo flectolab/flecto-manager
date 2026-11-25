@@ -282,8 +282,7 @@ function describeCdnPurge(payload: ActivityCdnPurge): ActivityDescription {
     fields.push(value('reason', skipReasonLabels[payload.skipReason] ?? payload.skipReason))
   }
 
-  // Worth saying out loud: the purge did not wait for the agents to catch up, so
-  // the cache may have been refilled with the previous version.
+  // The purge did not wait for the agents, so the cache may hold the previous version.
   if (!payload.waitedForAgents) {
     fields.push(value('agents', 'purged before the agents caught up'))
   }

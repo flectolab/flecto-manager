@@ -6,8 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// testDescriptor covers every field kind, so the validation and the split are
-// exercised on the shapes a real provider can declare.
+// testDescriptor covers every field kind.
 func testDescriptor() Descriptor {
 	return Descriptor{
 		Type:  "test",
@@ -241,8 +240,6 @@ func TestDescriptor_ApplyDefaults(t *testing.T) {
 	})
 }
 
-// multiSecretDescriptor declares two secrets, which is what a provider needing a
-// key pair or a client id and secret looks like.
 func multiSecretDescriptor() Descriptor {
 	return Descriptor{
 		Type:  "multi",
@@ -272,7 +269,7 @@ func TestDescriptor_MultipleSecrets(t *testing.T) {
 	t.Run("successMergesEachSecretIndependently", func(t *testing.T) {
 		stored := Values{"access_key": "stored-key", "secret_key": "stored-secret"}
 
-		// Only one of the two is rotated: the other has to survive untouched.
+		// Only one secret is rotated; the other must survive.
 		merged := multiSecretDescriptor().MergeSecrets(stored, Values{
 			"endpoint":   "https://api.example.com",
 			"secret_key": "rotated",

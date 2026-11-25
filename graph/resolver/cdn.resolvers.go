@@ -22,8 +22,7 @@ func (r *cdnFieldResolver) DefaultValue(ctx context.Context, obj *cdn.Field) (*s
 	if obj.Default == nil {
 		return nil, nil
 	}
-	// Rendered as a string whatever the kind: the form already knows the kind and
-	// coerces from there, which keeps one scalar out of the schema.
+	// Always a string: the form coerces it from the field kind.
 	return strPtrOrNil(fmt.Sprintf("%v", obj.Default)), nil
 }
 
@@ -73,8 +72,7 @@ func (r *mutationResolver) TestProjectCdnConfig(ctx context.Context, namespaceCo
 		return nil, err
 	}
 
-	// Anything else is the answer of the test, not a failure of the request: a
-	// rejected credential is exactly what the button is there to find out.
+	// Other errors are the test's result, not a request failure.
 	if err != nil {
 		return &graph.CdnTestResult{Success: false, Error: strPtrOrNil(err.Error())}, nil
 	}
@@ -102,8 +100,7 @@ func (r *projectCdnConfigResolver) SecretsSet(ctx context.Context, obj *model.Pr
 		return descriptor.SecretNames(obj.Secrets), nil
 	}
 
-	// The provider type is gone from this build. Listing the stored names is still
-	// truthful, and better than failing the whole listing over one configuration.
+	// Provider type unknown to this build: list the stored names rather than fail.
 	names := make([]string, 0, len(obj.Secrets))
 	for name := range obj.Secrets {
 		names = append(names, name)

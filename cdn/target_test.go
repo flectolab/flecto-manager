@@ -161,8 +161,7 @@ func TestNewPlanner(t *testing.T) {
 	t.Run("successKeepsWildcardsOutOfHosts", func(t *testing.T) {
 		planner := NewPlanner([]string{"*.example.com", "www.example.com"})
 
-		// A wildcard cannot be turned into a URL, so it never expands a host-less
-		// entry, it only routes the ones carrying a host.
+		// A wildcard routes host-carrying entries but never expands host-less ones.
 		assert.Equal(t, []string{"www.example.com"}, planner.Hosts())
 	})
 }

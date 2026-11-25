@@ -22,9 +22,7 @@ type Context struct {
 
 	Config    *config.Config
 	Validator *validator.Validate
-	// Cipher protects the values stored encrypted in the database. It defaults to
-	// the unavailable cipher, so a context built before the configuration is read
-	// refuses to encrypt rather than silently storing clear text.
+	// Cipher defaults to the unavailable cipher, refusing to store clear text.
 	Cipher crypt.Cipher
 }
 

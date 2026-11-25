@@ -8,18 +8,12 @@ import (
 	"github.com/flectolab/flecto-manager/service"
 )
 
-// cdnPurgeTimeoutMargin keeps a run shorter than the interval that triggers it, so
-// two runs never follow each other with no pause. A run that hits the timeout is
-// not a failure: the job it was working on is saved mid-flight and the next run
-// picks it up.
+// cdnPurgeTimeoutMargin keeps a run shorter than its interval. Hitting the timeout
+// is not a failure: progress is saved and the next run resumes.
 const cdnPurgeTimeoutMargin = 5 * time.Second
 
-// CdnPurge sends the cache invalidations a publish queued.
-//
-// The work is deliberately spread over runs rather than done in one: a publish
-// touching tens of thousands of URLs is paced by the CDN's own quota, which is
-// minutes of sending, and a scheduler task that ran that long would block its own
-// next tick.
+// CdnPurge sends the queued cache invalidations, spread over short runs since
+// the CDN quota paces a large purge over minutes.
 type CdnPurge struct {
 	ctx    *appContext.Context
 	worker service.CdnPurgeWorker
@@ -33,8 +27,7 @@ func (t *CdnPurge) Name() string {
 	return "cdn-purge"
 }
 
-// Interval is zero when the feature is off, which is how the scheduler skips the
-// task entirely rather than waking up to do nothing.
+// Interval is zero when the feature is off, so the scheduler skips the task.
 func (t *CdnPurge) Interval() time.Duration {
 	if !t.ctx.Config.Cdn.Enabled {
 		return 0
@@ -42,8 +35,7 @@ func (t *CdnPurge) Interval() time.Duration {
 	return t.ctx.Config.Cdn.WorkerInterval
 }
 
-// RunOnStart sends once at boot: an instance that was down while a publish queued
-// a purge should not leave the cache stale for another interval.
+// RunOnStart avoids leaving the cache stale for an interval after a restart.
 func (t *CdnPurge) RunOnStart() bool {
 	return true
 }
@@ -66,8 +58,7 @@ func (t *CdnPurge) Run(ctx context.Context) error {
 		t.ctx.Logger.Info("cdn purge run completed", "finished", finished)
 	}
 
-	// Retention runs after the sending, and only with whatever time is left: dropping
-	// old rows is never worth delaying an invalidation.
+	// Retention comes last: it is never worth delaying an invalidation.
 	purged, err := t.worker.PurgeExpiredJobs(ctx)
 	if err != nil {
 		return err

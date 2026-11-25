@@ -6,10 +6,8 @@ import (
 	"github.com/flectolab/flecto-manager/cdn"
 )
 
-// ResourceAddress is the projection of a redirect or a page down to what a cache
-// invalidation needs: what kind of address it is, and the address itself. Pages
-// carry their content inline, so reading whole rows to get a path is not an
-// option on a large publish.
+// ResourceAddress is a redirect or page reduced to its address, so a large
+// publish never loads page contents.
 type ResourceAddress struct {
 	ID     int64
 	Type   string
@@ -20,22 +18,15 @@ type ResourceAddress struct {
 type CdnPurgeStatus string
 
 const (
-	// CdnPurgeStatusWaitingAgents is a job held back until the agents of the project
-	// serve the published version. Purging before they do lets the CDN cache the old
-	// response again, straight from an agent that has not caught up.
-	//
-	// It is also the only status a later publish can merge into: once a job is
-	// running, its batches are already on their way.
+	// CdnPurgeStatusWaitingAgents holds a job until the agents serve the published
+	// version, so the CDN cannot re-cache a stale response. Only this status merges.
 	CdnPurgeStatusWaitingAgents CdnPurgeStatus = "WAITING_AGENTS"
 	CdnPurgeStatusRunning       CdnPurgeStatus = "RUNNING"
 	CdnPurgeStatusSucceeded     CdnPurgeStatus = "SUCCEEDED"
-	// CdnPurgeStatusPartial is a job where some batches went through and others did
-	// not. The cache is in a mixed state, which is worth saying rather than rounding
-	// to success or failure.
+	// CdnPurgeStatusPartial is a job where only some batches went through.
 	CdnPurgeStatusPartial CdnPurgeStatus = "PARTIAL"
 	CdnPurgeStatusFailed  CdnPurgeStatus = "FAILED"
-	// CdnPurgeStatusSkipped is a job that was never sent: the configuration was
-	// disabled in the meantime, or the publish had more targets than the cap allows.
+	// CdnPurgeStatusSkipped is a job never sent (configuration disabled, or over the cap).
 	CdnPurgeStatusSkipped CdnPurgeStatus = "SKIPPED"
 )
 
@@ -49,13 +40,11 @@ func (s CdnPurgeStatus) IsTerminal() bool {
 	}
 }
 
-// CdnPurgeSkipReasonTooManyTargets is recorded on a job the cap turned away. It
-// lives beside the cdn package reasons, which describe a single entry, because
-// this one describes the whole job.
+// CdnPurgeSkipReasonTooManyTargets is recorded on a job the cap turned away.
 const CdnPurgeSkipReasonTooManyTargets = "TOO_MANY_TARGETS"
 
-// CdnPurgeSkipReasonConfigDisabled is recorded when the configuration was turned
-// off between the publish and the purge.
+// CdnPurgeSkipReasonConfigDisabled is recorded when the configuration was
+// disabled between the publish and the purge.
 const CdnPurgeSkipReasonConfigDisabled = "CONFIG_DISABLED"
 
 var ProjectCdnPurgeJobSortableColumns = map[string]string{
@@ -65,11 +54,7 @@ var ProjectCdnPurgeJobSortableColumns = map[string]string{
 }
 
 // ProjectCdnPurgeJob is one publish worth of cache invalidation for one CDN
-// configuration.
-//
-// The targets are carried by the job rather than recomputed later on purpose: a
-// publish deletes the rows it published, so what a deleted redirect used to serve
-// is only knowable at that moment.
+// configuration. Targets are stored on the job because a publish deletes the rows.
 type ProjectCdnPurgeJob struct {
 	ID            int64    `json:"id" gorm:"primaryKey;autoIncrement"`
 	NamespaceCode string   `json:"-" gorm:"size:50;index:idx_project_cdn_purge_jobs_ns_proj,priority:1"`
@@ -78,22 +63,18 @@ type ProjectCdnPurgeJob struct {
 
 	CdnConfigID int64             `json:"-" gorm:"not null;index:idx_project_cdn_purge_jobs_config"`
 	CdnConfig   *ProjectCdnConfig `json:"cdnConfig" gorm:"foreignKey:CdnConfigID"`
-	// CdnConfigName and CdnConfigType are snapshots, so a finished job still reads
-	// as what it was even after the configuration is renamed.
+	// CdnConfigName and CdnConfigType are snapshots that survive a rename.
 	CdnConfigName string `json:"cdnConfigName" gorm:"size:100;not null"`
 	CdnConfigType string `json:"cdnConfigType" gorm:"size:50;not null"`
 
-	// ProjectVersion is the version the agents must be serving before the purge is
-	// allowed to start.
+	// ProjectVersion is the version agents must serve before the purge starts.
 	ProjectVersion int `json:"projectVersion"`
 
 	Status CdnPurgeStatus `json:"status" gorm:"size:20;not null;index:idx_project_cdn_purge_jobs_status"`
 
-	// Targets is the remaining work. It is dropped once the job succeeds: keeping
-	// the addresses of a purge that went through buys nothing and grows the table.
+	// Targets is the remaining work, dropped once the job succeeds.
 	Targets []cdn.Target `json:"-" gorm:"type:longtext;serializer:json"`
-	// Cursor is how far into Targets the worker got, so a run interrupted by a
-	// restart resumes instead of purging everything again.
+	// Cursor lets an interrupted run resume where it stopped.
 	Cursor int `json:"cursor" gorm:"default:0;not null"`
 
 	Requested int `json:"requested" gorm:"default:0;not null"`
@@ -107,12 +88,11 @@ type ProjectCdnPurgeJob struct {
 	Attempts int    `json:"attempts" gorm:"default:0;not null"`
 	Error    string `json:"error,omitempty" gorm:"size:1000"`
 
-	// WaitedForAgents is false when the job gave up waiting for the agents to serve
-	// the published version and purged anyway. The purge then races an agent that
-	// still answers with the previous redirect, so the cache may hold it again.
+	// WaitedForAgents is false when the job purged without the agents converging,
+	// so the cache may hold the previous response again.
 	WaitedForAgents bool `json:"waitedForAgents" gorm:"default:true;not null"`
 
-	// DeadlineAt is when the job stops waiting for the agents and purges anyway.
+	// DeadlineAt is when the job stops waiting for the agents.
 	DeadlineAt time.Time  `json:"deadlineAt" gorm:"type:timestamp"`
 	CreatedAt  time.Time  `json:"createdAt" gorm:"type:timestamp"`
 	UpdatedAt  time.Time  `json:"updatedAt" gorm:"type:timestamp"`
@@ -120,28 +100,19 @@ type ProjectCdnPurgeJob struct {
 	FinishedAt *time.Time `json:"finishedAt,omitempty" gorm:"type:timestamp"`
 }
 
-// CdnDraftChanges is what a publish is moving, expressed the way the publish
-// already holds it: the new state of the entries it writes, and the ids of the
+// CdnDraftChanges is what a publish moves: the entries it writes and the
 // published rows it replaces or removes.
-//
-// Like ActivityInput, it lives in model rather than service so that the generated
-// service mocks stay free of any import back into service.
 type CdnDraftChanges struct {
-	// RedirectIDs and PageIDs are the published rows a draft replaces or removes.
-	// An update appears here as well as in NewEntries: its address may have changed,
-	// and the old one has a cached response of its own.
-	//
-	// A creation does not: the row its draft points at is an empty placeholder with
-	// no address yet.
+	// RedirectIDs and PageIDs are the published rows replaced or removed. Updates
+	// appear here too (the old address may differ); creations do not.
 	RedirectIDs []int64
 	PageIDs     []int64
 	// NewEntries are the addresses the publish writes.
 	NewEntries []cdn.Entry
 }
 
-// CdnPublishPlan is what a publish has to invalidate, and through which
-// configurations. It is collected before the transaction, because a publish
-// deletes the rows that hold half of the answer.
+// CdnPublishPlan is what a publish has to invalidate, collected before the
+// transaction deletes the published rows.
 type CdnPublishPlan struct {
 	NamespaceCode string
 	ProjectCode   string
@@ -154,7 +125,7 @@ func (p CdnPublishPlan) IsEmpty() bool {
 	return len(p.Entries) == 0 || len(p.Configs) == 0
 }
 
-// Remaining is the slice of targets still to send.
+// Remaining returns the targets still to send.
 func (j *ProjectCdnPurgeJob) Remaining() []cdn.Target {
 	if j == nil || j.Cursor >= len(j.Targets) {
 		return nil

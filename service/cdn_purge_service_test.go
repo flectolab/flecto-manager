@@ -19,8 +19,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// newTestCdnPurgeService returns a purge service that finds no configuration, so
-// a publish under test behaves like a project with no CDN in front of it.
+// newTestCdnPurgeService returns a purge service that finds no configuration.
 func newTestCdnPurgeService(t *testing.T) CdnPurgeService {
 	t.Helper()
 
@@ -44,9 +43,7 @@ type cdnPurgeTestDeps struct {
 	svc          CdnPurgeService
 }
 
-// setupCdnPurgeTest wires the service on mocked read repositories and a real
-// database for the writes: a job is written through the transaction of the
-// publish, which is exactly what has to be exercised.
+// setupCdnPurgeTest uses a real database for writes, which go through the publish transaction.
 func setupCdnPurgeTest(t *testing.T) *cdnPurgeTestDeps {
 	t.Helper()
 
@@ -127,8 +124,7 @@ func TestCdnPurgeService_Collect(t *testing.T) {
 		defer deps.ctrl.Finish()
 		ctx := context.Background()
 
-		// One query and nothing else: a project with no CDN must not pay for the
-		// feature on every publish.
+		// One query only: a project with no CDN must not pay for the feature.
 		deps.configRepo.EXPECT().FindEnabledByProject(ctx, "ns1", "proj1").Return(nil, nil)
 
 		plan, err := deps.svc.Collect(ctx, "ns1", "proj1", model.CdnDraftChanges{RedirectIDs: []int64{7}})
@@ -280,10 +276,8 @@ func TestCdnPurgeService_Enqueue(t *testing.T) {
 		var jobs []model.ProjectCdnPurgeJob
 		assert.NoError(t, deps.db.Find(&jobs).Error)
 
-		// Two publishes waiting on the same configuration are one purge of their union.
 		assert.Len(t, jobs, 1)
 		assert.Equal(t, 2, jobs[0].Requested)
-		// The newer publish is the version the agents now have to be serving.
 		assert.Equal(t, 2, jobs[0].ProjectVersion)
 	})
 
@@ -312,7 +306,6 @@ func TestCdnPurgeService_Enqueue(t *testing.T) {
 		assert.NoError(t, deps.db.Model(&model.ProjectCdnPurgeJob{}).
 			Where("1 = 1").Update("status", model.CdnPurgeStatusRunning).Error)
 
-		// A running job already has batches on their way, so it is too late to add to it.
 		assert.NoError(t, deps.svc.Enqueue(ctx, deps.db, basePlan([]cdn.Entry{{Type: "BASIC", Source: "/b"}}, config), 2))
 
 		var jobs []model.ProjectCdnPurgeJob
@@ -343,7 +336,6 @@ func TestCdnPurgeService_Enqueue(t *testing.T) {
 		assert.Nil(t, job.Targets)
 		assert.NotNil(t, job.FinishedAt)
 
-		// The worker never sees this job, so the publish journals it itself.
 		var events []model.ActivityEvent
 		assert.NoError(t, deps.db.Find(&events).Error)
 		assert.Len(t, events, 1)
@@ -380,7 +372,6 @@ func TestCdnPurgeService_Enqueue(t *testing.T) {
 		var jobs []model.ProjectCdnPurgeJob
 		assert.NoError(t, deps.db.Order("id").Find(&jobs).Error)
 
-		// Turning the union away would drop the first publish, which fit on its own.
 		assert.Len(t, jobs, 2)
 		assert.Equal(t, model.CdnPurgeStatusWaitingAgents, jobs[0].Status)
 		assert.Equal(t, 2, jobs[0].Requested)
@@ -465,8 +456,6 @@ func TestCdnPurgeService_Enqueue(t *testing.T) {
 		deps := setupCdnPurgeTest(t)
 		defer deps.ctrl.Finish()
 
-		// A configuration serving none of the changed hosts has nothing to do, and a
-		// job recording that would be noise.
 		plan := basePlan([]cdn.Entry{{Type: "BASIC_HOST", Source: "other.com/x"}}, testCdnConfig(1, "eu", []string{"eu.example.com"}))
 		plan.Entries = nil
 
@@ -542,8 +531,6 @@ func TestCdnPurgeService_PurgeURLs(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, 2, job.Requested)
-		// A manual purge answers to no publish, so there is no version to converge on
-		// and nothing to wait for: it is queued as running.
 		assert.Equal(t, 0, job.ProjectVersion)
 		assert.Equal(t, model.CdnPurgeStatusRunning, job.Status)
 		assert.NotNil(t, job.StartedAt)
@@ -583,7 +570,7 @@ func TestCdnPurgeService_PurgeURLs(t *testing.T) {
 				defer deps.ctrl.Finish()
 				tt.mutate(deps)
 
-				// No configuration lookup expected: nothing would ever send the job.
+				// No configuration lookup expected.
 				_, err := deps.svc.PurgeURLs(context.Background(), "ns1", "proj1", "prod", []string{"https://www.example.com/x"})
 
 				assert.ErrorIs(t, err, ErrCdnPurgeDisabled)
@@ -634,7 +621,6 @@ func TestCdnPurgeService_PurgeURLs(t *testing.T) {
 		disabled.Enabled = types.Ptr(false)
 		deps.configRepo.EXPECT().FindByName(ctx, "ns1", "proj1", "prod").Return(&disabled, nil)
 
-		// Queueing a job the worker would immediately skip would look like it worked.
 		_, err := deps.svc.PurgeURLs(ctx, "ns1", "proj1", "prod", []string{"https://www.example.com/x"})
 
 		assert.ErrorIs(t, err, ErrCdnConfigDisabled)
@@ -649,7 +635,6 @@ func TestCdnPurgeService_PurgeURLs(t *testing.T) {
 		_, err := deps.svc.PurgeURLs(ctx, "ns1", "proj1", "prod", []string{"https://other.com/x"})
 
 		assert.ErrorIs(t, err, ErrCdnNothingToPurge)
-		// The refusal has to say why, otherwise there is nothing to act on.
 		assert.ErrorContains(t, err, "no_host_match")
 	})
 
@@ -676,7 +661,6 @@ func TestCdnPurgeService_PurgeURLs(t *testing.T) {
 			"https://www.example.com/b",
 		})
 
-		// An interactive action gets a refusal it can read, not a job silently skipped.
 		assert.ErrorContains(t, err, "exceeds the 1 allowed")
 	})
 

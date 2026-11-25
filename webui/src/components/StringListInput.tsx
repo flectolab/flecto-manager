@@ -8,12 +8,7 @@ interface StringListInputProps {
   onChange: (values: string[]) => void
 }
 
-/**
- * Edits a list of short strings as one input per entry.
- *
- * Empty entries are kept while editing - clearing a field must not make its row
- * vanish under the cursor - so the caller drops them when it submits.
- */
+/** Empty entries are kept while editing so a row never vanishes; the caller drops them on submit. */
 export function StringListInput({
   id,
   values,

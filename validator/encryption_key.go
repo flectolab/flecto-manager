@@ -7,9 +7,7 @@ import (
 
 const EncryptionKeyKey = "encryption_key"
 
-// ValidateEncryptionKey checks that a configured key decodes to a usable key.
-// Catching it here rather than at first use is what keeps a typo in the vault
-// from surfacing as an unreadable secret hours later.
+// ValidateEncryptionKey checks at boot that a configured key decodes to a usable key.
 func ValidateEncryptionKey(fl validator.FieldLevel) bool {
 	_, err := crypt.ParseKey(fl.Field().String())
 	return err == nil

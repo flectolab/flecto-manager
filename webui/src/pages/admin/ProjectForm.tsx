@@ -55,8 +55,7 @@ export function ProjectForm() {
   const isEditing = !!paramNamespaceCode && !!paramProjectCode
   useDocumentTitle(isEditing ? `Admin - Edit Project` : 'Admin - Add Project')
   const canWrite = canAdminResource(AdminSection.Projects, Action.Write)
-  // A CDN is configured against an existing project, so the tab only shows once
-  // the project has been created.
+  // A CDN config needs an existing project, so the tab only shows once it is created.
   const [tab, setTab] = useState<ProjectTab>('general')
   const isReadOnly = isEditing && !canWrite
 

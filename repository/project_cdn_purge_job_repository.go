@@ -14,32 +14,22 @@ type ProjectCdnPurgeJobRepository interface {
 	GetQuery(ctx context.Context) *gorm.DB
 	Create(ctx context.Context, job *model.ProjectCdnPurgeJob) error
 	Update(ctx context.Context, job *model.ProjectCdnPurgeJob) error
-	// UpdateProgress saves only how far a job got. It is called after every batch,
-	// where Update would rewrite the whole target list each time.
+	// UpdateProgress saves the job's progress without rewriting its target list.
 	UpdateProgress(ctx context.Context, job *model.ProjectCdnPurgeJob) error
 	FindByID(ctx context.Context, id int64) (*model.ProjectCdnPurgeJob, error)
-	// FindMergeable returns the job a new publish can fold itself into: one still
-	// waiting for the agents of that project, on that configuration. Merging avoids
-	// queueing a second purge behind a first one that has not even started.
+	// FindMergeable returns the waiting job of a configuration a publish can fold into.
 	FindMergeable(ctx context.Context, tx *gorm.DB, cdnConfigID int64) (*model.ProjectCdnPurgeJob, error)
-	// MergeWaiting saves a job a publish folded itself into, provided it is still
-	// waiting at the version it was read at. It reports false when a worker started
-	// the job, or another publish merged into it, in the meantime: the caller then
-	// queues a job of its own rather than adding to batches already on their way.
+	// MergeWaiting saves a merged job only if still waiting at readVersion; false
+	// means it raced a worker or another publish, and the caller queues its own job.
 	MergeWaiting(ctx context.Context, tx *gorm.DB, job *model.ProjectCdnPurgeJob, readVersion int) (bool, error)
-	// MarkRunning moves a waiting job to running, provided it still covers the
-	// version its agents were checked against. It reports false when a publish
-	// merged into it since it was read: the in-memory targets are then stale, and
-	// the job is looked at again on the next run.
+	// MarkRunning starts a waiting job only if its version is unchanged; false means
+	// a publish merged into it and the in-memory targets are stale.
 	MarkRunning(ctx context.Context, job *model.ProjectCdnPurgeJob, startedAt time.Time, waitedForAgents bool) (bool, error)
-	// FindActive returns the jobs a worker has to look at: up to limit running jobs,
-	// then up to limit waiting ones, oldest first within each. Running jobs are read
-	// apart so a pile of jobs waiting on lagging agents, in any project, cannot keep
-	// the ones ready to send out of a run.
+	// FindActive returns up to limit running jobs, then up to limit waiting ones, read
+	// apart so jobs waiting on lagging agents cannot crowd out the rest.
 	FindActive(ctx context.Context, limit int) ([]model.ProjectCdnPurgeJob, error)
 	FindByProject(ctx context.Context, namespaceCode, projectCode string, limit int) ([]model.ProjectCdnPurgeJob, error)
-	// DeleteFinishedBefore drops the finished jobs older than the cutoff and reports
-	// how many went.
+	// DeleteFinishedBefore drops finished jobs older than cutoff and returns the count.
 	DeleteFinishedBefore(ctx context.Context, cutoff time.Time, batchSize int) (int64, error)
 }
 
@@ -90,8 +80,7 @@ func (r *projectCdnPurgeJobRepository) FindByID(ctx context.Context, id int64) (
 	return &job, nil
 }
 
-// FindMergeable runs inside the publish transaction when one is given, so the job
-// it returns cannot be picked up by a worker between the read and the merge.
+// FindMergeable uses the publish transaction when given one.
 func (r *projectCdnPurgeJobRepository) FindMergeable(ctx context.Context, tx *gorm.DB, cdnConfigID int64) (*model.ProjectCdnPurgeJob, error) {
 	query := tx
 	if query == nil {
@@ -115,8 +104,7 @@ func (r *projectCdnPurgeJobRepository) MergeWaiting(ctx context.Context, tx *gor
 		query = r.db.WithContext(ctx)
 	}
 
-	// A struct rather than a map: only a struct goes through the JSON serializer of
-	// the targets and the skip counters.
+	// A struct, not a map: only a struct goes through the JSON serializer.
 	job.UpdatedAt = time.Now()
 	result := query.
 		Model(&model.ProjectCdnPurgeJob{}).

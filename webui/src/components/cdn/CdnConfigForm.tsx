@@ -56,8 +56,7 @@ export function CdnConfigForm({
     [descriptors, type],
   )
 
-  // Switching provider clears the values: they belong to the provider that
-  // declared them, and nothing guarantees the next one has the same fields.
+  // Values belong to the provider that declared them, so switching provider clears them.
   useEffect(() => {
     if (isEditing || !descriptor) return
 
@@ -113,8 +112,7 @@ export function CdnConfigForm({
           id="cdn-type"
           className="w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-white focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple disabled:opacity-60"
           value={type}
-          // The stored values belong to the original provider, so the type is fixed
-          // once the configuration exists.
+          // Stored values belong to the original provider, so the type is fixed once created.
           disabled={disabled || isEditing}
           onChange={(e) => setType(e.target.value)}
         >
@@ -178,10 +176,7 @@ export function CdnConfigForm({
   )
 }
 
-/**
- * normalize trims the list fields and drops the entries left empty. It happens on
- * submit and not while typing, so clearing an input does not make its row vanish.
- */
+/** Drops empty list entries on submit rather than while typing, so rows do not vanish. */
 function normalize(
   descriptor: CdnProviderDescriptor | undefined,
   values: Record<string, unknown>,
@@ -201,7 +196,6 @@ function normalize(
   return cleaned
 }
 
-/** defaultValues seeds a new configuration from what the provider declares. */
 function defaultValues(descriptor: CdnProviderDescriptor): Record<string, unknown> {
   const seeded: Record<string, unknown> = {}
 

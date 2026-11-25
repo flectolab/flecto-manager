@@ -41,8 +41,6 @@ func TestCdnPurge_Interval(t *testing.T) {
 		ctx.Config.Cdn.Enabled = false
 		ctx.Config.Cdn.WorkerInterval = 45 * time.Second
 
-		// A zero interval is how the scheduler skips the task instead of waking up
-		// to do nothing.
 		assert.Equal(t, time.Duration(0), task.Interval())
 	})
 }
@@ -69,8 +67,6 @@ func TestCdnPurge_Timeout(t *testing.T) {
 			ctx, _, task := setupCdnPurgeTaskTest(t)
 			ctx.Config.Cdn.WorkerInterval = tt.interval
 
-			// The timeout has to stay under the interval, otherwise two runs follow
-			// each other with no pause.
 			assert.Equal(t, tt.want, task.Timeout())
 		})
 	}
@@ -103,7 +99,7 @@ func TestCdnPurge_Run(t *testing.T) {
 
 		worker.EXPECT().Run(ctx).Return(0, errors.New("boom"))
 
-		// Retention is not even attempted: the run already has a problem to report.
+		// Retention is not attempted after a failed run.
 		assert.ErrorContains(t, task.Run(ctx), "boom")
 	})
 

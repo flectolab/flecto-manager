@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// newTestClient points a client at a stub API.
 func newTestClient(t *testing.T, handler http.HandlerFunc) *client {
 	t.Helper()
 
@@ -84,8 +83,7 @@ func TestClient_Do(t *testing.T) {
 	})
 
 	t.Run("failWithUnsuccessfulEnvelope", func(t *testing.T) {
-		// Cloudflare answers 200 with success false on some rejections, so the status
-		// code alone is not enough to call it a success.
+		// Cloudflare answers 200 with success false on some rejections.
 		c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 			writeAPIResponse(t, w, http.StatusOK, apiResponse{
 				Success: false,
@@ -153,7 +151,6 @@ func TestClient_Do(t *testing.T) {
 		retryAfter, temporary := cdn.AsTemporary(err)
 		assert.True(t, temporary)
 		assert.Equal(t, time.Duration(0), retryAfter)
-		// A response that is not the usual envelope still has to say something.
 		assert.ErrorContains(t, err, "bad gateway")
 	})
 

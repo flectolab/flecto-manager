@@ -97,8 +97,7 @@ func TestNewFromKey(t *testing.T) {
 	}
 }
 
-// newTestCipher builds a cipher on a fixed key. The key is a test fixture, not a
-// default: nothing outside the tests creates a cipher without configuration.
+// newTestCipher builds a cipher on a fixed test key.
 func newTestCipher(t *testing.T) Cipher {
 	t.Helper()
 
