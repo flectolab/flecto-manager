@@ -22,21 +22,16 @@ import (
 	"gorm.io/gorm"
 )
 
-// workerProviderType is registered by these tests so a purge can be driven without
-// a network call.
 const workerProviderType = "worker-fake"
 
 type workerProvider struct {
-	// batches records what was actually sent, which is how batching and resuming
-	// are checked.
 	batches [][]cdn.Target
 	// errs is consumed one per call, nil meaning success.
 	errs []error
 	// verifyErr is returned by Verify.
 	verifyErr error
 	limits    cdn.Limits
-	// onPurge, when set, runs on every call with its 0-based index before errs is
-	// consumed. It is how a test ends the run in the middle of a request.
+	// onPurge runs before errs is consumed; it lets a test end the run mid-request.
 	onPurge func(call int)
 }
 
@@ -59,8 +54,6 @@ func (p *workerProvider) Purge(_ context.Context, batch []cdn.Target) error {
 	return err
 }
 
-// registerWorkerProvider installs the fake and hands back the instance every
-// build returns, so a test can read what it was sent.
 func registerWorkerProvider(limits cdn.Limits, errs ...error) *workerProvider {
 	provider := &workerProvider{limits: limits, errs: errs}
 
@@ -165,7 +158,6 @@ func pathOf(i int) string {
 	return "/p" + string(rune('a'+i%26)) + string(rune('0'+i/26))
 }
 
-// convergedAgent is an agent already serving the version the job waits for.
 func convergedAgent(version int) model.Agent {
 	return model.Agent{
 		NamespaceCode: "ns1",
@@ -200,7 +192,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		assert.Equal(t, model.CdnPurgeStatusSucceeded, got.Status)
 		assert.Equal(t, 3, got.Purged)
 		assert.Len(t, provider.batches, 1)
-		// The addresses of a purge that went through are of no use to anyone.
 		assert.Nil(t, got.Targets)
 		assert.NotNil(t, got.FinishedAt)
 	})
@@ -235,7 +226,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		assert.Len(t, events, 1)
 		assert.Equal(t, model.ActivityResourceCdn, events[0].Resource)
 		assert.Equal(t, model.ActivityActionPurge, events[0].Action)
-		// No user context behind a background task: the system is what acted.
 		assert.Equal(t, model.ActivityActorSystem, events[0].Actor)
 	})
 
@@ -250,8 +240,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, 0, finished)
-		// Purging now would let the CDN cache the old response again, from an agent
-		// that has not caught up.
 		assert.Empty(t, provider.batches)
 		assert.Equal(t, model.CdnPurgeStatusWaitingAgents, deps.reload(t, job.ID).Status)
 	})
@@ -270,7 +258,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		assert.NoError(t, err)
 		got := deps.reload(t, job.ID)
 		assert.Equal(t, model.CdnPurgeStatusSucceeded, got.Status)
-		// Flagged, because the cache may hold the previous version again.
 		assert.False(t, got.WaitedForAgents)
 	})
 
@@ -287,8 +274,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		_, err := deps.worker.Run(context.Background())
 
 		assert.NoError(t, err)
-		// Nothing is going to serve the old response back, so there is nothing to
-		// wait for.
 		assert.Equal(t, model.CdnPurgeStatusSucceeded, deps.reload(t, job.ID).Status)
 	})
 
@@ -328,7 +313,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		got := deps.reload(t, job.ID)
 		assert.Equal(t, model.CdnPurgeStatusRunning, got.Status)
 		assert.Equal(t, 1, got.Attempts)
-		// The first batch went through, so the next run resumes after it.
 		assert.Equal(t, 1, got.Cursor)
 		assert.Equal(t, 1, got.Purged)
 		assert.Contains(t, got.Error, "rate limited")
@@ -340,11 +324,10 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		provider := registerWorkerProvider(cdn.Limits{MaxTargetsPerRequest: 1, TargetsPerSecond: 1000})
 		job := deps.queueJob(t, 2)
 		job.Status = model.CdnPurgeStatusRunning
-		// One failure short of giving up, left by earlier runs.
+		// One failure short of giving up.
 		job.Attempts = cdnMaxAttempts - 1
 		job.Error = "rate limited"
 		assert.NoError(t, deps.jobRepo.Update(context.Background(), job))
-		// The first batch goes through, the second meets a new rate limit.
 		provider.errs = []error{nil, cdn.Temporary(errors.New("rate limited again"), 0)}
 
 		finished, err := deps.worker.Run(context.Background())
@@ -353,7 +336,7 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		assert.Equal(t, 0, finished)
 
 		got := deps.reload(t, job.ID)
-		// A new streak starts: the job is deferred, not given up on.
+		// A success resets the streak: deferred, not given up on.
 		assert.Equal(t, model.CdnPurgeStatusRunning, got.Status)
 		assert.Equal(t, 1, got.Attempts)
 		assert.Equal(t, 1, got.Purged)
@@ -373,7 +356,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		_, err := deps.worker.Run(context.Background())
 
 		assert.NoError(t, err)
-		// A running job is past the convergence check, and only the tail is resent.
 		assert.Len(t, provider.batches, 1)
 		assert.Equal(t, 3, deps.reload(t, job.ID).Purged)
 	})
@@ -397,8 +379,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		assert.Equal(t, model.CdnPurgeStatusFailed, got.Status)
 		assert.Equal(t, 3, got.Failed)
 		assert.Contains(t, got.Error, "authentication error")
-		// A bad credential does not fix itself between two batches, so the rest is
-		// not sent one by one to fail the same way.
 		assert.Len(t, provider.batches, 1)
 	})
 
@@ -419,7 +399,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		assert.Equal(t, model.CdnPurgeStatusPartial, got.Status)
 		assert.Equal(t, 1, got.Purged)
 		assert.Equal(t, 2, got.Failed)
-		// A partial job keeps its targets, so what was missed stays knowable.
 		assert.NotNil(t, got.Targets)
 	})
 
@@ -470,8 +449,7 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// The run ends while the second batch is in flight, which a real client
-		// reports as a transport error, so a temporary one.
+		// The run ends mid-request, reported as a temporary transport error.
 		provider.onPurge = func(call int) {
 			if call == 1 {
 				cancel()
@@ -486,14 +464,11 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 
 		got := deps.reload(t, job.ID)
 		assert.Equal(t, model.CdnPurgeStatusRunning, got.Status)
-		// The first batch is on record, the interrupted one is not.
 		assert.Equal(t, 1, got.Cursor)
 		assert.Equal(t, 1, got.Purged)
-		// Being cut short is not the provider's fault: no attempt spent, no error.
 		assert.Equal(t, 0, got.Attempts)
 		assert.Empty(t, got.Error)
 
-		// The next run resends the interrupted batch and the rest, nothing before.
 		provider.onPurge = nil
 		provider.batches = nil
 
@@ -518,7 +493,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		// The last batch goes through, and the run ends right after it.
 		provider.onPurge = func(call int) {
 			if call == 1 {
 				cancel()
@@ -606,8 +580,7 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		provider := registerWorkerProvider(cdn.Limits{MaxTargetsPerRequest: 100, TargetsPerSecond: 1000})
 		job := deps.queueJob(t, 1)
 
-		// A publish folds version 3 into the job while the worker checks the agents
-		// against version 2.
+		// A publish merges version 3 while the worker checks agents against version 2.
 		deps.agentRepo.EXPECT().FindByProject(gomock.Any(), "ns1", "proj1").
 			DoAndReturn(func(context.Context, string, string) ([]model.Agent, error) {
 				assert.NoError(t, deps.db.Model(&model.ProjectCdnPurgeJob{}).Where("id = ?", job.ID).
@@ -617,8 +590,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 
 		finished, err := deps.worker.Run(context.Background())
 
-		// Nothing is sent from the stale copy: the next run checks the agents
-		// against version 3 and sends the merged targets.
 		assert.NoError(t, err)
 		assert.Equal(t, 0, finished)
 		assert.Empty(t, provider.batches)
@@ -635,7 +606,6 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		deps.queueJob(t, 1)
 		deps.queueJob(t, 1)
 
-		// The agent lookup fails for the first job and succeeds for the second.
 		gomock.InOrder(
 			deps.agentRepo.EXPECT().FindByProject(gomock.Any(), "ns1", "proj1").Return(nil, errors.New("boom")),
 			deps.agentRepo.EXPECT().FindByProject(gomock.Any(), "ns1", "proj1").Return([]model.Agent{convergedAgent(2)}, nil),

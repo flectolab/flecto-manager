@@ -93,7 +93,6 @@ func TestProjectCdnPurgeJobRepository_FindMergeable(t *testing.T) {
 
 		_, err := repo.FindMergeable(context.Background(), nil, configID)
 
-		// A running job has batches on their way, it is too late to add to it.
 		assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 	})
 
@@ -155,7 +154,6 @@ func TestProjectCdnPurgeJobRepository_FindActive(t *testing.T) {
 
 		got, err := repo.FindActive(ctx, 1)
 
-		// The older waiting job no longer takes the place of a job ready to send.
 		assert.NoError(t, err)
 		assert.Equal(t, []int64{running.ID, waiting.ID}, []int64{got[0].ID, got[1].ID})
 	})
@@ -373,7 +371,7 @@ func TestProjectCdnPurgeJobRepository_UpdateProgress(t *testing.T) {
 		job.Failed = 2
 		job.Attempts = 3
 		job.Error = "rate limited"
-		// Not part of the progress: must be left as stored.
+		// Not progress fields: must be left as stored.
 		job.Status = model.CdnPurgeStatusSucceeded
 		job.Targets = nil
 		assert.NoError(t, repo.UpdateProgress(ctx, job))
@@ -399,7 +397,6 @@ func TestProjectCdnPurgeJobRepository_UpdateProgress(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		// The reason the worker saves with a context of its own.
 		assert.Error(t, repo.UpdateProgress(ctx, job))
 	})
 }

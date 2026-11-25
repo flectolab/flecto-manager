@@ -6,29 +6,21 @@ import { StringListInput } from '../StringListInput'
 interface CdnManualPurgeProps {
   namespaceCode: string
   projectCode: string
-  /** Names of the enabled configurations, which are the only ones a purge can go through. */
+  /** Enabled configurations only: a purge cannot go through a disabled one. */
   configNames: string[]
 }
 
-/**
- * Queues a purge of explicit URLs, outside of any publish.
- *
- * It is the way out when a purge was skipped or failed: someone reads the history,
- * sees what was missed, and sends those addresses through by hand.
- */
+/** Manual way out for URLs a publish purge skipped or failed. */
 export function CdnManualPurge({ namespaceCode, projectCode, configNames }: CdnManualPurgeProps) {
   const [open, setOpen] = useState(false)
   const [chosenName, setChosenName] = useState('')
-  // Derived on every render rather than kept in state: the list changes under the
-  // form when a configuration is created, disabled or deleted, and a choice no
-  // longer in it would be sent as is.
+  // Derived on every render, not stored: the list changes under the form and a stale choice would be sent.
   const configName = configNames.includes(chosenName) ? chosenName : (configNames[0] ?? '')
   const [urls, setUrls] = useState<string[]>([''])
   const [error, setError] = useState('')
   const [queued, setQueued] = useState('')
 
-  // Refetching the history from here shows the new job straight away, instead of
-  // at the next poll.
+  // Refetch the history so the new job shows without waiting for the next poll.
   const [purgeUrls, { loading }] = useMutation(PurgeProjectCdnUrlsDocument, {
     refetchQueries: [GetProjectCdnPurgeJobsDocument],
   })

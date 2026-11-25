@@ -78,8 +78,7 @@ func TestRedirectRepository_FindAddressesByIDs(t *testing.T) {
 			ids = append(ids, createAddressRedirect(t, db, source).ID)
 		}
 
-		// A single IN clause holding one placeholder per row breaks past the database
-		// placeholder limit, which a large publish reaches.
+		// Batch size 2 forces several IN chunks.
 		got, err := repo.FindAddressesByIDs(context.Background(), nil, ids, 2)
 
 		assert.NoError(t, err)

@@ -220,8 +220,6 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 	activityRedirectCounts := model.ActivityPublishCounts{}
 	activityPageCounts := model.ActivityPublishCounts{}
 
-	// What the CDN has to invalidate, gathered along the way: the addresses this
-	// publish writes, and the ids of the rows it is about to replace or remove.
 	cdnChanges := model.CdnDraftChanges{}
 
 	redirects := make([]*model.Redirect, 0)
@@ -242,9 +240,8 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 			})
 			cdnChanges.NewEntries = append(cdnChanges.NewEntries, cdn.RedirectEntry(draft.NewRedirect))
 			if draft.ChangeType == model.DraftChangeTypeUpdate {
-				// An update may move the redirect elsewhere, and the address it leaves
-				// behind has a cached response of its own. A creation has no old address:
-				// the row its draft points at is an empty placeholder.
+				// An update may leave a cached old address behind; a creation's old row
+				// is an empty placeholder.
 				cdnChanges.RedirectIDs = append(cdnChanges.RedirectIDs, *draft.OldRedirectID)
 			}
 		case model.DraftChangeTypeDelete:
@@ -286,8 +283,7 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 		}
 	}
 
-	// Read before the transaction removes what it describes: a deleted redirect only
-	// says what it used to serve while its row is still there.
+	// Read before the transaction deletes the rows saying what was served.
 	cdnPlan, err := s.cdnPurge.Collect(ctx, namespaceCode, projectCode, cdnChanges)
 	if err != nil {
 		s.ctx.Logger.Error("publish failed: cdn collection", "namespace", namespaceCode, "project", projectCode, "error", err)
@@ -353,8 +349,7 @@ func (s *projectService) Publish(ctx context.Context, namespaceCode, projectCode
 			return err
 		}
 
-		// Inside the transaction on purpose: a purge must not outlive a publish that
-		// rolled back, nor be lost by one that went through.
+		// In the transaction: a purge must neither outlive a rollback nor be lost.
 		if err = s.cdnPurge.Enqueue(ctx, tx, cdnPlan, project.Version); err != nil {
 			return err
 		}

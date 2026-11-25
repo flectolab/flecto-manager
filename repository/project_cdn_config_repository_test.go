@@ -16,8 +16,7 @@ import (
 func setupProjectCdnConfigTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 
-	// The secrets column goes through the encrypted serializer, so the tests need a
-	// cipher registered just like the application does at boot.
+	// The secrets column needs a cipher registered, as at boot.
 	key, err := crypt.GenerateKey()
 	assert.NoError(t, err)
 	cipher, err := crypt.NewAESGCM(key)
@@ -77,8 +76,6 @@ func TestProjectCdnConfigRepository_Create(t *testing.T) {
 		var stored string
 		assert.NoError(t, db.Raw("SELECT settings FROM project_cdn_configs LIMIT 1").Scan(&stored).Error)
 
-		// Settings are shown in the admin form, so they are stored in clear on
-		// purpose: rendering the form never has to decrypt anything.
 		assert.Contains(t, stored, "abc123")
 	})
 }
@@ -89,8 +86,6 @@ func TestProjectCdnConfigRepository_MultipleSecrets(t *testing.T) {
 		repo := NewProjectCdnConfigRepository(db)
 
 		config := newTestCdnConfig("prod", true)
-		// The secrets column holds one encrypted JSON object, so the number of
-		// secrets a provider declares is not bounded by the schema.
 		config.Secrets = cdn.Values{"access_key": "AKIA", "secret_key": "s3cret"}
 		assert.NoError(t, repo.Create(context.Background(), config))
 
@@ -114,7 +109,7 @@ func TestProjectCdnConfigRepository_MultipleSecrets(t *testing.T) {
 
 		assert.NotContains(t, stored, "AKIA")
 		assert.NotContains(t, stored, "s3cret")
-		// Not even the field names leak: the whole object is sealed, not each value.
+		// The whole object is sealed, field names included.
 		assert.NotContains(t, stored, "access_key")
 	})
 }

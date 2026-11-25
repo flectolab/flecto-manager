@@ -25,8 +25,7 @@ const (
 	ActivityResourceProject  ActivityResource = "PROJECT"
 	// ActivityResourceActivity is the journal itself, which can be cleared.
 	ActivityResourceActivity ActivityResource = "ACTIVITY"
-	// ActivityResourceCdn is a CDN configuration of the project, and the cache
-	// purges run through it.
+	// ActivityResourceCdn is a CDN configuration and its cache purges.
 	ActivityResourceCdn ActivityResource = "CDN"
 
 	ActivityActionCreate   ActivityAction = "CREATE"
@@ -37,9 +36,7 @@ const (
 	ActivityActionPublish  ActivityAction = "PUBLISH"
 	// ActivityActionTruncate wipes every entry of a resource in a project.
 	ActivityActionTruncate ActivityAction = "TRUNCATE"
-	// ActivityActionPurge is a cache invalidation run against a CDN. It is recorded
-	// by the background task, so its actor is the system rather than the user whose
-	// publish set it off.
+	// ActivityActionPurge is a CDN cache invalidation, recorded with the system actor.
 	ActivityActionPurge ActivityAction = "PURGE"
 )
 

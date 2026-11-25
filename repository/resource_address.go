@@ -7,13 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// findAddressesByIDs reads the type and address of rows by primary key, in
-// chunks: a single IN clause holding one placeholder per row breaks past the
-// database placeholder limit, which a large publish reaches.
-//
-// sourceColumn differs between the two tables that use it - redirects call it
-// source, pages call it path - so it is named by the caller and never comes from
-// user input.
+// findAddressesByIDs reads addresses by primary key in chunks, to stay under the
+// placeholder limit. sourceColumn is set by the caller, never from user input.
 func findAddressesByIDs(query *gorm.DB, sourceColumn string, ids []int64, batchSize int) ([]model.ResourceAddress, error) {
 	if len(ids) == 0 {
 		return nil, nil

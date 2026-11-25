@@ -78,8 +78,7 @@ func TestAesGCM_Encrypt(t *testing.T) {
 		second, err := c.Encrypt([]byte("s3cret"))
 		assert.NoError(t, err)
 
-		// A fresh nonce per call is what keeps two identical secrets from being
-		// recognisable as identical in a database dump.
+		// A fresh nonce per call: identical secrets must not look identical.
 		assert.NotEqual(t, first, second)
 	})
 
@@ -130,7 +129,6 @@ func TestAesGCM_Decrypt(t *testing.T) {
 		payload, err := old.Encrypt([]byte("s3cret"))
 		assert.NoError(t, err)
 
-		// The retired key is kept only for reading, the active one is now different.
 		rotated, err := NewAESGCM(activeKey, retiredKey)
 		assert.NoError(t, err)
 
@@ -273,8 +271,7 @@ func TestParseKey(t *testing.T) {
 	}
 }
 
-// testKey builds a deterministic key of the required size, filled with a single
-// byte so two calls with different fillers give two different keys.
+// testKey builds a deterministic key filled with a single byte.
 func testKey(filler byte) []byte {
 	key := make([]byte, KeySize)
 	for i := range key {

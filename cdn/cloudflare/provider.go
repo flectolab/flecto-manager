@@ -1,7 +1,5 @@
-// Package cloudflare purges a Cloudflare zone by URL.
-//
-// Only single-file purge is used. Purging by prefix or by hostname would drop
-// cached objects nobody changed, which is not something a publish gets to decide.
+// Package cloudflare purges a Cloudflare zone by URL. Prefix and hostname purges
+// are not used: they would drop cached objects nobody changed.
 package cloudflare
 
 import (
@@ -21,9 +19,7 @@ const (
 	fieldPlan     = "plan"
 )
 
-// Plans and their purge quotas, as published by Cloudflare. They are read from
-// the configuration rather than hard-coded to one value because both the batch
-// size and the throughput depend on the zone's plan.
+// Plans: batch size and throughput depend on the zone's plan.
 const (
 	planFree       = "free"
 	planPro        = "pro"
@@ -31,8 +27,7 @@ const (
 	planEnterprise = "enterprise"
 )
 
-// planLimits maps a plan to what its single-file purge allows: how many URLs a
-// request accepts, and how many URLs per second the account may sustain.
+// planLimits maps a plan to its single-file purge quota, counted in URLs.
 var planLimits = map[string]cdn.Limits{
 	planFree:       {MaxTargetsPerRequest: 100, TargetsPerSecond: 800},
 	planPro:        {MaxTargetsPerRequest: 100, TargetsPerSecond: 1500},
@@ -104,8 +99,7 @@ type Provider struct {
 	client *client
 }
 
-// New builds a provider from a configuration already validated against the
-// descriptor.
+// New builds a provider from a validated configuration.
 func New(settings, secrets cdn.Values, options cdn.Options) (cdn.Provider, error) {
 	limits, ok := planLimits[settings.String(fieldPlan)]
 	if !ok {
@@ -123,8 +117,8 @@ func (p *Provider) Type() string {
 	return Type
 }
 
-// Capabilities reports URL only. Cloudflare also purges by prefix and by
-// hostname on every plan, but both invalidate more than what was published.
+// Capabilities reports URL only: prefix and hostname purges, available on every
+// plan, invalidate more than what was published.
 func (p *Provider) Capabilities() cdn.Capabilities {
 	return cdn.Capabilities{URL: true}
 }
@@ -133,9 +127,8 @@ func (p *Provider) Limits() cdn.Limits {
 	return p.limits
 }
 
-// Verify checks the credentials. It reads the zone first, which also confirms the
-// zone id, and falls back to verifying the token alone when the token is scoped
-// narrowly enough to purge but not to read the zone - the recommended scope.
+// Verify reads the zone, falling back to verifying the token alone when it is
+// scoped to purge but not to read the zone (the recommended scope).
 func (p *Provider) Verify(ctx context.Context) error {
 	err := p.client.do(ctx, http.MethodGet, "/zones/"+p.zoneID, nil)
 	if err == nil {
@@ -148,9 +141,7 @@ func (p *Provider) Verify(ctx context.Context) error {
 	return p.client.do(ctx, http.MethodGet, "/user/tokens/verify", nil)
 }
 
-// purgeRequest is the body of a single-file purge. Files are plain URL strings:
-// the object form exists to name the headers of a custom cache key, which
-// nothing here produces.
+// purgeRequest is the body of a single-file purge.
 type purgeRequest struct {
 	Files []string `json:"files"`
 }
@@ -172,10 +163,8 @@ func (p *Provider) Purge(ctx context.Context, batch []cdn.Target) error {
 	return p.client.do(ctx, http.MethodPost, "/zones/"+p.zoneID+"/purge_cache", purgeRequest{Files: files})
 }
 
-// renderURL turns a target into the absolute URL Cloudflare purges. Only https
-// is emitted: a zone redirecting http to https answers those at the edge, so
-// purging them would spend quota on responses that were never cached from the
-// origin.
+// renderURL emits https only: http requests are redirected at the edge and never
+// cached, so purging them would waste quota.
 func renderURL(target cdn.Target) (string, error) {
 	if target.Kind != cdn.KindURL {
 		return "", fmt.Errorf("cloudflare provider cannot purge a %s target", target.Kind)

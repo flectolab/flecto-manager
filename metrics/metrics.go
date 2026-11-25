@@ -92,9 +92,7 @@ var (
 		[]string{"task"},
 	)
 
-	// CdnPurgeJobsTotal counts finished purge jobs by outcome. A publish that never
-	// reached the CDN is otherwise only visible in the activity journal of one
-	// project, which nobody watches.
+	// CdnPurgeJobsTotal counts finished purge jobs by outcome.
 	CdnPurgeJobsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flecto_cdn_purge_jobs_total",
@@ -103,8 +101,7 @@ var (
 		[]string{"provider", "status"},
 	)
 
-	// CdnPurgeTargetsTotal counts URLs, not requests: it is what the CDN quota is
-	// spent on, and what a publish is measured in.
+	// CdnPurgeTargetsTotal counts URLs, not requests.
 	CdnPurgeTargetsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "flecto_cdn_purge_targets_total",
@@ -113,8 +110,7 @@ var (
 		[]string{"provider", "outcome"},
 	)
 
-	// CdnPurgeJobDuration measures a job end to end, waiting for the agents
-	// included, which is what tells whether the convergence timeout is well chosen.
+	// CdnPurgeJobDuration measures sending a job, the wait for the agents excluded.
 	CdnPurgeJobDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Name:    "flecto_cdn_purge_job_duration_seconds",
@@ -189,11 +185,8 @@ type AgentMetricsProvider interface {
 	GetAgentCounts(ctx context.Context, onlineThreshold time.Time) ([]AgentCount, error)
 }
 
-// AgentQuerier is the slice of the agent service this package needs.
-//
-// It is declared here rather than imported from service so the dependency points
-// one way: a service reports its metrics, and metrics never reaches back into the
-// services. service.AgentService satisfies it as it stands.
+// AgentQuerier is the slice of the agent service this package needs, declared
+// here so metrics never imports service.
 type AgentQuerier interface {
 	GetQuery(ctx context.Context) *gorm.DB
 }

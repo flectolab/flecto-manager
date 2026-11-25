@@ -1,8 +1,7 @@
 package service
 
 import (
-	// Registers the CDN providers with the cdn registry. They are looked up by
-	// type at runtime, so nothing references them directly.
+	// Registers the CDN providers, looked up by type at runtime.
 	_ "github.com/flectolab/flecto-manager/cdn/cloudflare"
 	appContext "github.com/flectolab/flecto-manager/context"
 	"github.com/flectolab/flecto-manager/jwt"

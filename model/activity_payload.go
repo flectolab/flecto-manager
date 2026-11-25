@@ -69,10 +69,8 @@ func NewPageSnapshot(page *commonTypes.Page, contentSize int64) *PageSnapshot {
 	}
 }
 
-// CdnConfigSnapshot is the activity projection of a CDN configuration. The
-// provider settings are deliberately left out beyond the hostnames: a journal
-// kept for months has no business holding a zone identifier, let alone anything
-// that came out of the secrets column.
+// CdnConfigSnapshot is the activity projection of a CDN configuration; provider
+// settings other than hosts are left out on purpose.
 type CdnConfigSnapshot struct {
 	Name    string   `json:"name"`
 	Type    string   `json:"type"`
@@ -80,8 +78,7 @@ type CdnConfigSnapshot struct {
 	Hosts   []string `json:"hosts,omitempty"`
 }
 
-// NewCdnConfigSnapshot projects a CDN configuration for the activity trail, nil
-// in, nil out.
+// NewCdnConfigSnapshot projects a CDN configuration for the activity trail.
 func NewCdnConfigSnapshot(config *ProjectCdnConfig) *CdnConfigSnapshot {
 	if config == nil {
 		return nil
@@ -94,9 +91,7 @@ func NewCdnConfigSnapshot(config *ProjectCdnConfig) *CdnConfigSnapshot {
 	}
 }
 
-// ActivityCdnPurge summarises one cache invalidation. It is the only record of
-// whether a publish actually reached the CDN, so it says what was left out as
-// well as what went through.
+// ActivityCdnPurge summarises one cache invalidation, including what was left out.
 type ActivityCdnPurge struct {
 	Config  string         `json:"config"`
 	Type    string         `json:"type"`
@@ -106,13 +101,11 @@ type ActivityCdnPurge struct {
 	Requested int `json:"requested"`
 	Purged    int `json:"purged"`
 	Failed    int `json:"failed"`
-	// Skipped breaks down the entries that produced no target at all, by reason.
+	// Skipped counts the entries that produced no target, by reason.
 	Skipped map[string]int `json:"skipped,omitempty"`
-	// SkipReason is set when the whole job was turned away rather than sent.
+	// SkipReason is set when the whole job was turned away.
 	SkipReason string `json:"skipReason,omitempty"`
-	// WaitedForAgents is false when the job gave up waiting for the agents to serve
-	// the published version and purged anyway, which means the CDN may have cached
-	// the previous response again.
+	// WaitedForAgents is false when the job purged without the agents converging.
 	WaitedForAgents bool   `json:"waitedForAgents"`
 	DurationMs      int64  `json:"durationMs"`
 	Error           string `json:"error,omitempty"`

@@ -7,13 +7,9 @@ import (
 	"strconv"
 )
 
-// Values is a provider configuration, keyed by field name. It is deliberately
-// untyped: the fields a provider needs are described at runtime by its
-// Descriptor, not by a Go struct, which is what lets the admin UI render a form
-// for a provider the front-end knows nothing about.
-//
-// Values come back from a JSON column, so numbers arrive as float64 and lists as
-// []any. The accessors below absorb that rather than making every caller do it.
+// Values is a provider configuration keyed by field name, untyped since fields are
+// described at runtime by the Descriptor. Read from JSON, numbers arrive as
+// float64 and lists as []any: the accessors absorb that.
 type Values map[string]any
 
 func (v Values) Has(name string) bool {
@@ -80,8 +76,7 @@ func (v Values) StringList(name string) []string {
 	}
 }
 
-// Clone returns a shallow copy, so that merging or redacting a configuration
-// never mutates the one held by the caller.
+// Clone returns a shallow copy.
 func (v Values) Clone() Values {
 	clone := make(Values, len(v))
 	for name, value := range v {
@@ -90,9 +85,7 @@ func (v Values) Clone() Values {
 	return clone
 }
 
-// MarshalGQL writes the values as a JSON object. Only the settings of a
-// configuration are ever marshalled: the secrets live in their own map and never
-// reach a client.
+// MarshalGQL writes the values as a JSON object.
 func (v Values) MarshalGQL(w io.Writer) {
 	if v == nil {
 		_, _ = w.Write([]byte("{}"))
@@ -107,8 +100,7 @@ func (v Values) MarshalGQL(w io.Writer) {
 	_, _ = w.Write(encoded)
 }
 
-// UnmarshalGQL reads a submitted configuration. Values arrive as a JSON object,
-// which is the only shape a provider configuration can take.
+// UnmarshalGQL reads a submitted configuration from a JSON object.
 func (v *Values) UnmarshalGQL(raw any) error {
 	object, ok := raw.(map[string]any)
 	if !ok {

@@ -7,17 +7,13 @@ import (
 	"time"
 )
 
-// Options are the settings of the instance a provider is built with, as opposed to
-// the values of one configuration.
+// Options are instance-wide settings, as opposed to one configuration's values.
 type Options struct {
-	// HTTPTimeout bounds a single call to the provider's API. Zero leaves the
-	// provider's own default.
+	// HTTPTimeout bounds one API call. Zero keeps the provider's default.
 	HTTPTimeout time.Duration
 }
 
-// Factory builds a provider from a validated configuration. Settings and secrets
-// arrive separated the way they are stored, so a factory never has to know which
-// of its fields were encrypted.
+// Factory builds a provider from a validated configuration.
 type Factory func(settings, secrets Values, options Options) (Provider, error)
 
 type registration struct {
@@ -30,9 +26,7 @@ var (
 	registry      = map[string]registration{}
 )
 
-// Register adds a provider type. It is called from the init of each provider
-// package, which the application imports for its side effect - the same shape as
-// the database dialector registry.
+// Register adds a provider type, from the init of each provider package.
 func Register(descriptor Descriptor, factory Factory) {
 	registryMutex.Lock()
 	defer registryMutex.Unlock()
@@ -40,8 +34,7 @@ func Register(descriptor Descriptor, factory Factory) {
 	registry[descriptor.Type] = registration{descriptor: descriptor, factory: factory}
 }
 
-// Descriptors lists the registered provider types, sorted by type so that the
-// admin UI always offers them in the same order.
+// Descriptors lists the registered provider types, sorted by type.
 func Descriptors() []Descriptor {
 	registryMutex.RLock()
 	defer registryMutex.RUnlock()
@@ -70,8 +63,6 @@ func GetDescriptor(providerType string) (Descriptor, error) {
 }
 
 // New validates a configuration against its descriptor and builds the provider.
-// Validation happens here rather than in each factory so that every provider gets
-// the same guarantees, including the ones added later.
 func New(providerType string, settings, secrets Values, options Options) (Provider, error) {
 	registryMutex.RLock()
 	entry, ok := registry[providerType]

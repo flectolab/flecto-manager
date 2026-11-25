@@ -12,9 +12,7 @@ type ProjectCdnConfigRepository interface {
 	GetTx(ctx context.Context) *gorm.DB
 	GetQuery(ctx context.Context) *gorm.DB
 	FindByProject(ctx context.Context, namespaceCode, projectCode string) ([]model.ProjectCdnConfig, error)
-	// FindEnabledByProject returns only the configurations a publish has to purge
-	// through. It is the query on the publish path, so it is kept separate from the
-	// listing one rather than filtered by the caller.
+	// FindEnabledByProject returns the configurations a publish purges through.
 	FindEnabledByProject(ctx context.Context, namespaceCode, projectCode string) ([]model.ProjectCdnConfig, error)
 	FindByName(ctx context.Context, namespaceCode, projectCode, name string) (*model.ProjectCdnConfig, error)
 	Create(ctx context.Context, config *model.ProjectCdnConfig) error

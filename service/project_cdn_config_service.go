@@ -15,27 +15,22 @@ import (
 )
 
 var (
-	// ErrCdnEncryptionUnavailable is returned when a configuration carrying secrets
-	// is submitted on an instance with no encryption key. Refusing is the point:
-	// the alternative would be storing an API token in clear.
+	// ErrCdnEncryptionUnavailable refuses secrets without an encryption key, rather
+	// than storing them in clear.
 	ErrCdnEncryptionUnavailable = errors.New("cdn configuration needs security.encryption_key to be set")
-	// ErrCdnNameAlreadyUsed is returned when a project already has a configuration
-	// under that name.
+	// ErrCdnNameAlreadyUsed is returned on a duplicate name within a project.
 	ErrCdnNameAlreadyUsed = errors.New("cdn configuration name is already used in this project")
-	// ErrCdnTypeImmutable is returned when an update changes the provider type. The
-	// stored values belong to the original provider and mean nothing to another one.
+	// ErrCdnTypeImmutable is returned when an update changes the provider type, whose
+	// stored values would mean nothing to another one.
 	ErrCdnTypeImmutable = errors.New("cdn configuration type cannot be changed")
 )
 
 type ProjectCdnConfigService interface {
 	GetTx(ctx context.Context) *gorm.DB
 	GetQuery(ctx context.Context) *gorm.DB
-	// Descriptors lists the provider types the admin UI can offer, each carrying
-	// the fields to render.
+	// Descriptors lists the provider types with the fields the admin UI renders.
 	Descriptors() []cdn.Descriptor
-	// EncryptionAvailable reports whether the instance can store secrets at all,
-	// which needs security.encryption_key. The admin UI asks before showing a form
-	// it would only be able to reject.
+	// EncryptionAvailable reports whether security.encryption_key is set.
 	EncryptionAvailable() bool
 	List(ctx context.Context, namespaceCode, projectCode string) ([]model.ProjectCdnConfig, error)
 	// ListEnabled returns the configurations a publish purges through.
@@ -44,9 +39,8 @@ type ProjectCdnConfigService interface {
 	Create(ctx context.Context, namespaceCode, projectCode string, input model.ProjectCdnConfigInput) (*model.ProjectCdnConfig, error)
 	Update(ctx context.Context, namespaceCode, projectCode, name string, input model.ProjectCdnConfigInput) (*model.ProjectCdnConfig, error)
 	Delete(ctx context.Context, namespaceCode, projectCode, name string) (bool, error)
-	// Test builds the provider and checks its credentials against the CDN API.
+	// Test checks the credentials against the CDN API.
 	Test(ctx context.Context, namespaceCode, projectCode, name string) error
-	// Provider builds the provider of a stored configuration.
 	Provider(config *model.ProjectCdnConfig) (cdn.Provider, error)
 }
 
@@ -224,15 +218,12 @@ func (s *projectCdnConfigService) Provider(config *model.ProjectCdnConfig) (cdn.
 	return cdn.New(config.Type, config.Settings, config.Secrets, cdnProviderOptions(s.ctx))
 }
 
-// cdnProviderOptions is what the instance configuration hands every provider it
-// builds, for a purge as well as for a credential test.
 func cdnProviderOptions(ctx *appContext.Context) cdn.Options {
 	return cdn.Options{HTTPTimeout: ctx.Config.Cdn.HTTPTimeout}
 }
 
-// applyValues validates a submission against the descriptor and stores what it
-// carries, keeping the secrets that were left out: the form never receives them,
-// so it cannot send them back.
+// applyValues keeps the stored secrets left out of a submission: the form never
+// receives them, so it cannot send them back.
 func (s *projectCdnConfigService) applyValues(
 	config *model.ProjectCdnConfig,
 	descriptor cdn.Descriptor,
@@ -256,9 +247,7 @@ func (s *projectCdnConfigService) applyValues(
 	return nil
 }
 
-// recordActivity writes the trail entry of a configuration change. A failure to
-// record must not undo a change that already happened, so it is logged rather
-// than returned.
+// recordActivity logs a failure rather than returning it: the change already happened.
 func (s *projectCdnConfigService) recordActivity(
 	ctx context.Context,
 	config *model.ProjectCdnConfig,
@@ -279,8 +268,6 @@ func (s *projectCdnConfigService) recordActivity(
 	}
 }
 
-// enabledOrDefault leaves a configuration enabled when the submission says
-// nothing: creating one to leave it off is not what an operator means.
 func enabledOrDefault(enabled *bool) *bool {
 	if enabled == nil {
 		return types.Ptr(true)

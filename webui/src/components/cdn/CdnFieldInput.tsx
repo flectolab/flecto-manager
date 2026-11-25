@@ -15,7 +15,7 @@ export interface CdnFieldDescriptor {
 interface CdnFieldInputProps {
   field: CdnFieldDescriptor
   value: unknown
-  /** Names of the secrets already stored, so a secret input can say so instead of looking empty. */
+  /** Lets a secret input say a value is stored instead of looking empty. */
   isSecretSet: boolean
   disabled: boolean
   onChange: (value: unknown) => void
@@ -24,10 +24,7 @@ interface CdnFieldInputProps {
 const inputClass =
   'w-full rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-slate-900 dark:text-white placeholder-slate-400 focus:border-brand-purple focus:outline-none focus:ring-1 focus:ring-brand-purple disabled:opacity-60'
 
-/**
- * Renders one provider field from its runtime descriptor. The front-end knows
- * nothing about the providers: whatever the server describes is what appears.
- */
+/** The front-end knows no provider: fields come from the server's descriptors. */
 export function CdnFieldInput({ field, value, isSecretSet, disabled, onChange }: CdnFieldInputProps) {
   const help = field.kind === 'SECRET' && isSecretSet
     ? 'A value is stored. Leave empty to keep it, or type a new one to replace it.'

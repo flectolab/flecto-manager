@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// stubProvider is the minimum a factory has to return for the registry tests.
 type stubProvider struct {
 	settings Values
 	secrets  Values
@@ -22,8 +21,7 @@ func (p *stubProvider) Limits() Limits                        { return Limits{Ma
 func (p *stubProvider) Verify(context.Context) error          { return nil }
 func (p *stubProvider) Purge(context.Context, []Target) error { return nil }
 
-// withRegistry installs a registry holding only what the case needs and restores
-// the real one afterwards, since the registry is global.
+// withRegistry swaps the global registry for the test and restores it afterwards.
 func withRegistry(t *testing.T) {
 	t.Helper()
 

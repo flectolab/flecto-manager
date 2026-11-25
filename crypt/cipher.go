@@ -1,32 +1,23 @@
-// Package crypt provides symmetric encryption for values that must be stored at
-// rest, such as third-party credentials kept in the database.
-//
-// It knows nothing about what it protects: any feature needing a secret column
-// takes a Cipher, or tags its field with the "encrypted" GORM serializer.
+// Package crypt provides symmetric encryption for values stored at rest, through
+// a Cipher or the "encrypted" GORM serializer.
 package crypt
 
 import "errors"
 
 var (
-	// ErrNoKey is returned by every operation of the cipher built when no
-	// encryption key is configured. Callers surface it as "feature unavailable"
-	// rather than failing at boot: an instance with no key must still start and
-	// serve everything that does not need encryption.
+	// ErrNoKey is returned when no encryption key is configured; callers report the
+	// feature as unavailable instead of failing at boot.
 	ErrNoKey = errors.New("no encryption key configured")
 
-	// ErrMalformedPayload is returned when a stored value does not have the
-	// expected envelope, which means it was not produced by this package.
+	// ErrMalformedPayload is returned when a stored value is not a valid envelope.
 	ErrMalformedPayload = errors.New("malformed encrypted payload")
 
-	// ErrUnknownKey is returned when a payload references a key id that is not in
-	// the configured key set, typically after a key was rotated out too early.
+	// ErrUnknownKey is returned when a payload references a key id not configured.
 	ErrUnknownKey = errors.New("unknown encryption key id")
 )
 
-// Cipher encrypts and decrypts values kept at rest.
-//
-// Encrypt returns a self-describing envelope: it carries the key id used, so a
-// value stays readable after a new key becomes the active one.
+// Cipher encrypts and decrypts values kept at rest. Envelopes carry the key id
+// used, so values stay readable after a key rotation.
 type Cipher interface {
 	Encrypt(plaintext []byte) (string, error)
 	Decrypt(payload string) ([]byte, error)
@@ -46,8 +37,7 @@ func DecryptString(c Cipher, payload string) (string, error) {
 	return string(plaintext), nil
 }
 
-// unavailable is the cipher used when no key is configured. It fails every call
-// instead of silently storing plaintext.
+// unavailable is the cipher used when no key is configured.
 type unavailable struct{}
 
 // NewUnavailable returns a Cipher that refuses every operation with ErrNoKey.
@@ -63,16 +53,14 @@ func (unavailable) Decrypt(string) ([]byte, error) {
 	return nil, ErrNoKey
 }
 
-// IsUnavailable reports whether c is the cipher returned by NewUnavailable, which
-// is how a service tells "encryption is not configured" from "encryption failed".
+// IsUnavailable reports whether c is the cipher returned by NewUnavailable.
 func IsUnavailable(c Cipher) bool {
 	_, ok := c.(unavailable)
 	return ok
 }
 
-// NewFromKey builds a cipher from a configured key value. An empty value yields
-// the unavailable cipher, so a deployment that needs no encrypted feature starts
-// without any key material.
+// NewFromKey builds a cipher from a configured key; an empty value yields the
+// unavailable cipher.
 func NewFromKey(value string) (Cipher, error) {
 	if value == "" {
 		return NewUnavailable(), nil

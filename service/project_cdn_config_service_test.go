@@ -108,7 +108,6 @@ func TestProjectCdnConfigService_Create(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, "abc123", got.Settings.String("zone_id"))
 		assert.Equal(t, "cf-token", got.Secrets.String("api_token"))
-		// The token must never reach the column stored in clear.
 		assert.False(t, got.Settings.Has("api_token"))
 	})
 
@@ -223,7 +222,6 @@ func TestProjectCdnConfigService_Create(t *testing.T) {
 
 		_, err := svc.Create(ctx, "ns1", "proj1", cloudflareInput())
 
-		// Storing an API token in clear is not an acceptable fallback.
 		assert.ErrorIs(t, err, ErrCdnEncryptionUnavailable)
 	})
 
@@ -249,7 +247,6 @@ func TestProjectCdnConfigService_Create(t *testing.T) {
 		repo.EXPECT().Create(ctx, gomock.Any()).Return(nil)
 		activityRepo.EXPECT().Create(ctx, gomock.Any()).Return(errors.New("boom"))
 
-		// The configuration exists, so failing to journal it must not report failure.
 		got, err := svc.Create(ctx, "ns1", "proj1", cloudflareInput())
 
 		assert.NoError(t, err)
@@ -276,7 +273,7 @@ func TestProjectCdnConfigService_Update(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, "new-zone", got.Settings.String("zone_id"))
-		// The form never receives the token, so it cannot send it back.
+		// The form never receives the token, so the stored one is kept.
 		assert.Equal(t, "cf-token", got.Secrets.String("api_token"))
 	})
 
@@ -319,7 +316,6 @@ func TestProjectCdnConfigService_Update(t *testing.T) {
 		})
 
 		assert.NoError(t, err)
-		// Disabling keeps the zone and the credentials, it only stops the purges.
 		assert.False(t, got.IsEnabled())
 		assert.Equal(t, "cf-token", got.Secrets.String("api_token"))
 	})
@@ -345,7 +341,6 @@ func TestProjectCdnConfigService_Update(t *testing.T) {
 
 		_, err := svc.Update(ctx, "ns1", "proj1", "prod", model.ProjectCdnConfigInput{Type: "akamai"})
 
-		// The stored values belong to the original provider.
 		assert.ErrorIs(t, err, ErrCdnTypeImmutable)
 	})
 
@@ -566,8 +561,6 @@ func TestProjectCdnConfigService_GetQuery(t *testing.T) {
 	assert.Nil(t, svc.GetQuery(ctx))
 }
 
-// fakeProviderType is a provider registered by the tests alone, so that the paths
-// going all the way through a provider are exercised without a network call.
 const fakeProviderType = "test-fake"
 
 type fakeProvider struct {
@@ -580,8 +573,6 @@ func (p *fakeProvider) Limits() cdn.Limits                        { return cdn.L
 func (p *fakeProvider) Verify(context.Context) error              { return p.verifyErr }
 func (p *fakeProvider) Purge(context.Context, []cdn.Target) error { return nil }
 
-// registerFakeProvider installs the fake under its own type, leaving the real
-// providers registered alongside it.
 func registerFakeProvider(verifyErr error) {
 	cdn.Register(cdn.Descriptor{
 		Type:  fakeProviderType,

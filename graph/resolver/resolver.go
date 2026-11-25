@@ -36,10 +36,8 @@ type Resolver struct {
 	AgentConfig             config.AgentConfig
 }
 
-// canAdministerProjects gates the CDN configuration on project administration
-// rather than on the project resources: it holds the credentials of a third-party
-// account, which is not something a redirect editor should reach, the same way
-// truncating a project is kept out of their hands.
+// canAdministerProjects gates CDN configuration on project administration, since
+// it holds third-party credentials.
 func (r *Resolver) canAdministerProjects(ctx context.Context, action model.ActionType) error {
 	userCtx := auth.GetUser(ctx)
 	if !r.PermissionChecker.CanAdmin(userCtx.SubjectPermissions, model.AdminSectionProjects, action) {

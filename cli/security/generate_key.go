@@ -20,8 +20,7 @@ secrets kept in the database: losing it makes them unreadable, and changing it
 makes the values written with the previous one unreadable too.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		// The whole point of this command is to run before a configuration exists,
-		// so it skips the loading and validation the other commands go through.
+		// Runs before a configuration exists, so it skips config loading.
 		PersistentPreRunE: func(*cobra.Command, []string) error { return nil },
 		RunE:              GetGenerateKeyRunFn(ctx),
 	}
@@ -36,8 +35,7 @@ func GetGenerateKeyRunFn(_ *context.Context) func(*cobra.Command, []string) erro
 			return err
 		}
 
-		// Printed bare, with nothing around it, so it can be piped straight into a
-		// vault or a secret manager.
+		// Printed bare so it can be piped into a secret manager.
 		cmd.Println(crypt.EncodeKey(key))
 		return nil
 	}

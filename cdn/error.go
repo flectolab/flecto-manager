@@ -6,13 +6,10 @@ import (
 	"time"
 )
 
-// TemporaryError marks a failure worth trying again: a rate limit, a timeout, an
-// outage on the provider side. Anything else - a bad credential, an unknown zone,
-// a malformed request - fails the same way on every attempt and is returned bare,
-// so the caller can stop instead of burning its retries.
+// TemporaryError marks a retryable failure (rate limit, timeout, outage). Errors
+// that would fail identically on every attempt are returned bare.
 type TemporaryError struct {
-	// RetryAfter is how long to wait before trying again, when the provider says
-	// so. Zero leaves the delay to the caller's backoff.
+	// RetryAfter is the delay asked by the provider; zero leaves it to the caller's backoff.
 	RetryAfter time.Duration
 	Err        error
 }
@@ -33,8 +30,7 @@ func Temporary(err error, retryAfter time.Duration) error {
 	return &TemporaryError{RetryAfter: retryAfter, Err: err}
 }
 
-// AsTemporary reports whether the error is retryable, and how long the provider
-// asked to wait.
+// AsTemporary reports whether the error is retryable, and the delay asked.
 func AsTemporary(err error) (time.Duration, bool) {
 	var temporary *TemporaryError
 	if errors.As(err, &temporary) {
