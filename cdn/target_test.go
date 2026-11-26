@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	commonTypes "github.com/flectolab/flecto-manager/common/types"
+	"github.com/flectolab/flecto-manager/types"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -22,6 +23,15 @@ func TestRedirectEntry(t *testing.T) {
 			name:     "successWithBasicHost",
 			redirect: &commonTypes.Redirect{Type: commonTypes.RedirectTypeBasicHost, Source: "example.com/promo"},
 			want:     Entry{Type: "BASIC_HOST", Source: "example.com/promo"},
+		},
+		{
+			name: "successWithIgnoreQueryString",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasic,
+				Source:  "/promo",
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+			want: Entry{Type: "BASIC", Source: "/promo", IgnoreQueryString: true},
 		},
 		{
 			name:     "successWithNil",
@@ -192,12 +202,46 @@ func TestPlanner_Serves(t *testing.T) {
 
 func TestPlanner_Build(t *testing.T) {
 	tests := []struct {
-		name        string
-		hosts       []string
-		entries     []Entry
-		wantTargets []Target
-		wantSkipped map[SkipReason]int
+		name         string
+		hosts        []string
+		capabilities Capabilities
+		entries      []Entry
+		wantTargets  []Target
+		wantSkipped  map[SkipReason]int
 	}{
+		{
+			name:         "successPurgesByPrefixAnEntryIgnoringQueryString",
+			hosts:        []string{"www.example.com", "example.com"},
+			capabilities: Capabilities{URL: true, Prefix: true},
+			entries: []Entry{
+				{Type: "BASIC", Source: "/promo", IgnoreQueryString: true},
+				{Type: "BASIC", Source: "/other"},
+			},
+			wantTargets: []Target{
+				{Kind: KindPrefix, Host: "example.com", Path: "/promo"},
+				{Kind: KindPrefix, Host: "www.example.com", Path: "/promo"},
+				{Kind: KindURL, Host: "example.com", Path: "/other"},
+				{Kind: KindURL, Host: "www.example.com", Path: "/other"},
+			},
+			wantSkipped: map[SkipReason]int{},
+		},
+		{
+			name:         "successPurgesByUrlAnEntryIgnoringQueryStringWithoutPrefixPurge",
+			hosts:        []string{"www.example.com"},
+			capabilities: Capabilities{URL: true},
+			entries:      []Entry{{Type: "BASIC_HOST", Source: "www.example.com/promo", IgnoreQueryString: true}},
+			wantTargets: []Target{
+				{Kind: KindURL, Host: "www.example.com", Path: "/promo"},
+			},
+			wantSkipped: map[SkipReason]int{SkipReasonQueryVariants: 1},
+		},
+		{
+			name:         "skipsOnceAnEntryIgnoringQueryStringWhoseHostIsNotServed",
+			hosts:        []string{"www.example.com"},
+			capabilities: Capabilities{URL: true},
+			entries:      []Entry{{Type: "BASIC_HOST", Source: "other.com/promo", IgnoreQueryString: true}},
+			wantSkipped:  map[SkipReason]int{SkipReasonNoHostMatch: 1},
+		},
 		{
 			name:    "successExpandsHostLessEntryOverEveryHost",
 			hosts:   []string{"www.example.com", "example.com"},
@@ -307,7 +351,7 @@ func TestPlanner_Build(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := NewPlanner(tt.hosts).Build(tt.entries)
+			got := NewPlanner(tt.hosts).WithCapabilities(tt.capabilities).Build(tt.entries)
 
 			assert.Equal(t, tt.wantTargets, got.Targets)
 			assert.Equal(t, tt.wantSkipped, got.Skipped)
@@ -357,48 +401,96 @@ func TestBatch(t *testing.T) {
 		{Kind: KindURL, Path: "/2"},
 		{Kind: KindURL, Path: "/3"},
 	}
+	mixed := []Target{
+		{Kind: KindPrefix, Path: "/p1"},
+		{Kind: KindPrefix, Path: "/p2"},
+		{Kind: KindURL, Path: "/1"},
+		{Kind: KindURL, Path: "/2"},
+		{Kind: KindURL, Path: "/3"},
+	}
 
 	tests := []struct {
 		name    string
 		targets []Target
-		size    int
+		limits  Limits
 		want    [][]Target
 	}{
 		{
 			name:    "successWithExactMultiple",
 			targets: targets[:2],
-			size:    2,
+			limits:  Limits{MaxTargetsPerRequest: 2},
 			want:    [][]Target{targets[:2]},
 		},
 		{
 			name:    "successWithRemainder",
 			targets: targets,
-			size:    2,
+			limits:  Limits{MaxTargetsPerRequest: 2},
 			want:    [][]Target{targets[:2], targets[2:]},
 		},
 		{
 			name:    "successWithSizeLargerThanInput",
 			targets: targets,
-			size:    10,
+			limits:  Limits{MaxTargetsPerRequest: 10},
 			want:    [][]Target{targets},
 		},
 		{
 			name:    "successWithoutSizeYieldsSingleBatch",
 			targets: targets,
-			size:    0,
+			limits:  Limits{},
 			want:    [][]Target{targets},
 		},
 		{
 			name:    "successWithoutTargets",
 			targets: nil,
-			size:    2,
+			limits:  Limits{MaxTargetsPerRequest: 2},
 			want:    nil,
+		},
+		{
+			name:    "successCutsOnKindChange",
+			targets: mixed,
+			limits:  Limits{MaxTargetsPerRequest: 10},
+			want:    [][]Target{mixed[:2], mixed[2:]},
+		},
+		{
+			name:    "successUsesTheSizeOfEachKind",
+			targets: mixed,
+			limits: Limits{
+				MaxTargetsPerRequest: 2,
+				ByKind:               map[TargetKind]Limits{KindPrefix: {MaxTargetsPerRequest: 1}},
+			},
+			want: [][]Target{mixed[:1], mixed[1:2], mixed[2:4], mixed[4:]},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, Batch(tt.targets, tt.size))
+			assert.Equal(t, tt.want, Batch(tt.targets, tt.limits))
 		})
 	}
+}
+
+func TestLimits_For(t *testing.T) {
+	prefix := Limits{MaxTargetsPerRequest: 100, RequestsPerSecond: 10, Burst: 50}
+	limits := Limits{MaxTargetsPerRequest: 500, TargetsPerSecond: 3000, ByKind: map[TargetKind]Limits{KindPrefix: prefix}}
+
+	assert.Equal(t, prefix, limits.For(KindPrefix))
+	assert.Equal(t, Limits{MaxTargetsPerRequest: 500, TargetsPerSecond: 3000}, limits.For(KindURL))
+}
+
+func TestSortTargets(t *testing.T) {
+	targets := []Target{
+		{Kind: KindURL, Host: "b.com", Path: "/a"},
+		{Kind: KindPrefix, Host: "b.com", Path: "/z"},
+		{Kind: KindURL, Host: "a.com", Path: "/b"},
+		{Kind: KindURL, Host: "a.com", Path: "/a"},
+	}
+
+	SortTargets(targets)
+
+	assert.Equal(t, []Target{
+		{Kind: KindPrefix, Host: "b.com", Path: "/z"},
+		{Kind: KindURL, Host: "a.com", Path: "/a"},
+		{Kind: KindURL, Host: "a.com", Path: "/b"},
+		{Kind: KindURL, Host: "b.com", Path: "/a"},
+	}, targets)
 }

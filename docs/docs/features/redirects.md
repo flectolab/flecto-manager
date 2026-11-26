@@ -16,6 +16,7 @@ Manage HTTP redirections from the Manager dashboard or API.
    - **Source**: The path or pattern to match
    - **Target**: Where to redirect
    - **Status**: HTTP status code
+   - **Query string** options, for `BASIC` and `BASIC_HOST` (see below)
 
 ## Redirect Types
 
@@ -84,6 +85,48 @@ For host-based redirect types, the following rules apply:
 
 :::
 
+## Query String Options
+
+By default a redirect compares the requested URL **with its query string**: a `BASIC`
+redirect from `/old-page` does not apply to `/old-page?utm_source=newsletter`. Two
+options, available on `BASIC` and `BASIC_HOST` redirects, change that. Both are off
+by default, so a redirect without options behaves as it always did.
+
+| Option | Effect |
+|--------|--------|
+| **Ignore query string** (`ignoreQueryString`) | The redirect applies whatever the query string of the request is |
+| **Preserve query string** (`preserveQueryString`) | The query string of the request is forwarded to the target, to keep campaign tracking for example |
+
+```
+Type:    BASIC
+Source:  /old-page
+Target:  /new-page
+Options: ignore query string, preserve query string
+```
+
+- Request: `GET /old-page` → Redirects to `/new-page`
+- Request: `GET /old-page?utm_source=newsletter` → Redirects to `/new-page?utm_source=newsletter`
+
+When the target already has a query string, it is kept as written and the parameters
+of the request are appended after it, except those the target already has:
+`/new-page?lang=fr` with a request carrying `?lang=en&utm_source=x` redirects to
+`/new-page?lang=fr&utm_source=x`. The query string is inserted before the fragment of the
+target (`/new-page#top` gives `/new-page?utm_source=x#top`).
+
+Rules:
+
+- The source of a redirect ignoring the query string must not contain one.
+- A redirect with the exact query string of the request still wins: `/old-page?x=1`
+  (without options) is preferred over `/old-page` ignoring the query string for a
+  request to `/old-page?x=1`.
+- Regex types (`REGEX`, `REGEX_HOST`) do not take these options: the pattern itself
+  decides what to do with the query string.
+- With a CDN in front of the agents, publishing a redirect ignoring the query string
+  purges it by prefix, see [CDN cache purge](cdn.md#what-gets-purged).
+
+Agents need a client built with this feature to apply the options. An older agent
+ignores them and compares the URL with its query string, as before.
+
 ## HTTP Status Codes
 
 | Status | Code | Description |
@@ -113,17 +156,22 @@ The file must be a `.csv` or `.tsv` file with **tab-separated** columns.
 
 **Header row (required):**
 ```
-type    source    target    status
+type    source    target    status    options
 ```
+
+The `options` column is optional: a file with the first four columns only is still
+accepted, and its rows keep the options of the redirects they overwrite (dropped if the
+row turns the redirect into a regex type). With the column, a row may leave the cell
+empty, which clears the options.
 
 **Example content:**
 
-| type | source | target | status |
-|------|--------|--------|--------|
-| BASIC | /old-page | /new-page | MOVED_PERMANENT |
-| BASIC | /about | /about-us | 301 |
-| REGEX | ^/blog/(.*)$ | /articles/$1 | MOVED_PERMANENT |
-| BASIC_HOST | old.example.com/shop | https://shop.example.com | FOUND |
+| type | source | target | status | options |
+|------|--------|--------|--------|---------|
+| BASIC | /old-page | /new-page | MOVED_PERMANENT | ignoreQueryString=true,preserveQueryString=true |
+| BASIC | /about | /about-us | 301 | |
+| REGEX | ^/blog/(.*)$ | /articles/$1 | MOVED_PERMANENT | |
+| BASIC_HOST | old.example.com/shop | https://shop.example.com | FOUND | ignoreQueryString=true |
 
 ### Columns
 
@@ -133,6 +181,11 @@ type    source    target    status
 | `source` | Yes | Path or regex pattern |
 | `target` | Yes | Target URL or path |
 | `status` | Yes | `MOVED_PERMANENT`, `FOUND`, `TEMPORARY_REDIRECT`, `PERMANENT_REDIRECT` or `301`, `302`, `307`, `308` |
+| `options` | No | Comma separated `key=value`: `ignoreQueryString`, `preserveQueryString`, with `true` or `false`. A key left out is not set |
+
+The export writes the same five columns, so an exported file can be imported back.
+An option explicitly set to `false` is exported as such and differs from one not
+set: importing it over a redirect without that option creates a draft.
 
 ### Import Options
 
@@ -152,7 +205,8 @@ type    source    target    status
 
 When multiple redirects could match a path, they are evaluated in order:
 
-1. Exact matches (`BASIC`, `BASIC_HOST`) first
-2. Then regex matches (`REGEX`, `REGEX_HOST`)
+1. Exact matches, query string included: `BASIC_HOST`, then `BASIC`
+2. `BASIC_HOST`, then `BASIC` redirects ignoring the query string, on the path alone
+3. Then regex matches (`REGEX_HOST`, then `REGEX`)
 
-Within each category, longer/more specific patterns take priority.
+Within regex matches, longer patterns take priority.

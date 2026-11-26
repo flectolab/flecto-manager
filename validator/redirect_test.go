@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	commonTypes "github.com/flectolab/flecto-manager/common/types"
+	"github.com/flectolab/flecto-manager/types"
 	"github.com/go-playground/validator/v10"
 	"github.com/stretchr/testify/assert"
 )
@@ -263,6 +264,94 @@ func TestValidateRedirect(t *testing.T) {
 				Source: "source[",
 				Target: "/target",
 				Status: commonTypes.RedirectStatusMovedPermanent,
+			},
+			wantErr: assert.Error,
+		},
+		{
+			name: "successIgnoreAndPreserveQueryStringWithBasic",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasic,
+				Source:  "/source",
+				Target:  "/target",
+				Status:  commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true), PreserveQueryString: types.Ptr(true)},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "successIgnoreQueryStringWithBasicHost",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasicHost,
+				Source:  "example.com/source",
+				Target:  "https://example.com/target",
+				Status:  commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "successFalseOptionsWithRegex",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeRegex,
+				Source:  "^/source/(.*)",
+				Target:  "/target/$1",
+				Status:  commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(false), PreserveQueryString: types.Ptr(false)},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "successQueryStringInSourceWithoutIgnore",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasic,
+				Source:  "/source?x=1",
+				Target:  "/target",
+				Status:  commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{PreserveQueryString: types.Ptr(true)},
+			},
+			wantErr: assert.NoError,
+		},
+		{
+			name: "failedIgnoreQueryStringWithQueryStringInSource",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasic,
+				Source:  "/source?x=1",
+				Target:  "/target",
+				Status:  commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+			wantErr: assert.Error,
+		},
+		{
+			name: "failedIgnoreQueryStringWithQueryStringInBasicHostSource",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasicHost,
+				Source:  "example.com/source?x=1",
+				Target:  "https://example.com/target",
+				Status:  commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+			wantErr: assert.Error,
+		},
+		{
+			name: "failedIgnoreQueryStringWithRegex",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeRegex,
+				Source:  "^/source",
+				Target:  "/target",
+				Status:  commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+			wantErr: assert.Error,
+		},
+		{
+			name: "failedPreserveQueryStringWithRegexHost",
+			redirect: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeRegexHost,
+				Source:  "example.com/source",
+				Target:  "https://example.com/target",
+				Status:  commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{PreserveQueryString: types.Ptr(true)},
 			},
 			wantErr: assert.Error,
 		},

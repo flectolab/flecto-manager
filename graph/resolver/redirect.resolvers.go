@@ -15,6 +15,7 @@ import (
 	"github.com/flectolab/flecto-manager/database"
 	"github.com/flectolab/flecto-manager/graph"
 	"github.com/flectolab/flecto-manager/model"
+	"github.com/flectolab/flecto-manager/service"
 )
 
 // ProjectsRedirects is the resolver for the projectsRedirects field.
@@ -131,7 +132,7 @@ func (r *queryResolver) ExportRedirects(ctx context.Context, namespaceCode strin
 	}
 
 	var sb strings.Builder
-	sb.WriteString("type\tsource\ttarget\tstatus\n")
+	sb.WriteString(service.ImportHeader())
 
 	err := r.RedirectService.SearchBatch(ctx, query, 1000, func(redirects []model.Redirect) error {
 		for _, redirect := range redirects {
@@ -142,6 +143,8 @@ func (r *queryResolver) ExportRedirects(ctx context.Context, namespaceCode strin
 			sb.WriteString(redirect.Target)
 			sb.WriteByte('\t')
 			sb.WriteString(string(redirect.Status))
+			sb.WriteByte('\t')
+			sb.WriteString(service.FormatRedirectOptions(redirect.Options))
 			sb.WriteByte('\n')
 		}
 		return nil

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"sort"
 	"strings"
 	"time"
 
@@ -103,7 +102,11 @@ func (s *cdnPurgeService) Collect(
 	}
 
 	for _, address := range append(redirects, pages...) {
-		entries = append(entries, cdn.Entry{Type: address.Type, Source: address.Source})
+		entries = append(entries, cdn.Entry{
+			Type:              address.Type,
+			Source:            address.Source,
+			IgnoreQueryString: address.Options.IsIgnoreQueryString(),
+		})
 	}
 
 	plan.Entries = entries
@@ -134,7 +137,13 @@ func (s *cdnPurgeService) enqueueOne(
 	projectVersion int,
 	deadline time.Time,
 ) error {
-	purge := cdn.NewPlanner(config.Hosts()).Build(publish.Entries)
+	// An unknown type must not fail the publish: its job fails in the worker, in
+	// the purge history, like any job whose provider cannot be built.
+	var capabilities cdn.Capabilities
+	if descriptor, errDescriptor := cdn.GetDescriptor(config.Type); errDescriptor == nil {
+		capabilities = descriptor.Capabilities
+	}
+	purge := cdn.NewPlanner(config.Hosts()).WithCapabilities(capabilities).Build(publish.Entries)
 
 	if purge.IsEmpty() && purge.SkippedTotal() == 0 {
 		return nil
@@ -265,17 +274,8 @@ func unionTargets(current, incoming []cdn.Target) []cdn.Target {
 		merged = append(merged, target)
 	}
 
-	sortTargets(merged)
+	cdn.SortTargets(merged)
 	return merged
-}
-
-func sortTargets(targets []cdn.Target) {
-	sort.Slice(targets, func(i, j int) bool {
-		if targets[i].Host != targets[j].Host {
-			return targets[i].Host < targets[j].Host
-		}
-		return targets[i].Path < targets[j].Path
-	})
 }
 
 func (s *cdnPurgeService) History(ctx context.Context, namespaceCode, projectCode string, limit int) ([]model.ProjectCdnPurgeJob, error) {
@@ -371,7 +371,7 @@ func planManualTargets(planner *cdn.Planner, urls []string) ([]cdn.Target, map[c
 		}
 	}
 
-	sortTargets(targets)
+	cdn.SortTargets(targets)
 	return targets, skipped
 }
 

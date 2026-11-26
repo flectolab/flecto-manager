@@ -80,4 +80,27 @@ func ValidateRedirect(sl validator.StructLevel) {
 		}
 	}
 
+	validateRedirectOptions(sl, redirect)
+}
+
+// Query string options are limited to BASIC and BASIC_HOST: a regex already
+// decides what it does with the query string. A false option is accepted on any
+// type, so a form can send every option whatever the type is.
+func validateRedirectOptions(sl validator.StructLevel, redirect commonTypes.Redirect) {
+	isBasic := redirect.Type == commonTypes.RedirectTypeBasic || redirect.Type == commonTypes.RedirectTypeBasicHost
+
+	if redirect.Options.IsIgnoreQueryString() {
+		if !isBasic {
+			sl.ReportError(redirect.Options.IgnoreQueryString, "IgnoreQueryString", "IgnoreQueryString", "option not supported for this type", string(redirect.Type))
+			return
+		}
+		if strings.Contains(redirect.Source, "?") {
+			sl.ReportError(redirect.Source, "Source", "Source", "source must not contain a query string when it is ignored", redirect.Source)
+			return
+		}
+	}
+
+	if redirect.Options.IsPreserveQueryString() && !isBasic {
+		sl.ReportError(redirect.Options.PreserveQueryString, "PreserveQueryString", "PreserveQueryString", "option not supported for this type", string(redirect.Type))
+	}
 }

@@ -75,24 +75,46 @@ const REDIRECT_FIELDS = [
   { key: 'target', label: 'target' },
   { key: 'type', label: 'type' },
   { key: 'status', label: 'code' },
+  { key: 'options', label: 'options' },
 ] as const
 
+type RedirectFieldKey = (typeof REDIRECT_FIELDS)[number]['key']
+
+// Options read like the import file column; an option set to false is shown,
+// since it differs from one not set.
+function formatRedirectOptions(options: RedirectSnapshot['options']): string {
+  if (!options) return ''
+  return (['ignoreQueryString', 'preserveQueryString'] as const)
+    .filter((key) => options[key] !== undefined && options[key] !== null)
+    .map((key) => `${key}=${options[key]}`)
+    .join(',')
+}
+
+function redirectFieldValue(redirect: RedirectSnapshot, key: RedirectFieldKey): string {
+  return key === 'options' ? formatRedirectOptions(redirect.options) : redirect[key]
+}
+
 function redirectState(redirect: RedirectSnapshot): ActivityFieldDescriptor[] {
-  return REDIRECT_FIELDS.map((f) => value(f.label, redirect[f.key]))
+  return REDIRECT_FIELDS
+    // A redirect without options keeps the description it had before options existed.
+    .filter((f) => f.key !== 'options' || redirectFieldValue(redirect, f.key) !== '')
+    .map((f) => value(f.label, redirectFieldValue(redirect, f.key)))
 }
 
 function describeRedirectChange(payload: ActivityChange<RedirectSnapshot>): ActivityDescription {
   const { before, after } = payload
 
   if (before && after) {
-    const changed = REDIRECT_FIELDS.filter((f) => before[f.key] !== after[f.key])
+    const changed = REDIRECT_FIELDS.filter((f) => redirectFieldValue(before, f.key) !== redirectFieldValue(after, f.key))
     if (changed.length === 0) return { fields: redirectState(after) }
 
     return {
       fields: [
         // The source identifies the redirect, keep it even when unchanged
         ...(changed.some((f) => f.key === 'source') ? [] : [value('source', after.source)]),
-        ...changed.map((f) => change(f.label, before[f.key], after[f.key])),
+        ...changed.map((f) =>
+          change(f.label, redirectFieldValue(before, f.key) || 'none', redirectFieldValue(after, f.key) || 'none')
+        ),
       ],
     }
   }
@@ -260,6 +282,7 @@ const skipReasonLabels: Record<string, string> = {
   INVALID: 'invalid',
   TOO_MANY_TARGETS: 'too many URLs',
   CONFIG_DISABLED: 'configuration disabled',
+  QUERY_VARIANTS: 'query string variants (no prefix purge)',
 }
 
 function skippedLabel(skipped?: Record<string, number>): string {

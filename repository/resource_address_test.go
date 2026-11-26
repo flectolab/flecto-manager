@@ -59,6 +59,21 @@ func TestRedirectRepository_FindAddressesByIDs(t *testing.T) {
 		}, got)
 	})
 
+	t.Run("successReadsTheOptions", func(t *testing.T) {
+		db := setupResourceAddressTestDB(t)
+		repo := NewRedirectRepository(db)
+		redirect := createAddressRedirect(t, db, "/a")
+		redirect.Options = commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)}
+		assert.NoError(t, db.Save(redirect).Error)
+
+		got, err := repo.FindAddressesByIDs(context.Background(), nil, []int64{redirect.ID}, 500)
+
+		assert.NoError(t, err)
+		if assert.Len(t, got, 1) {
+			assert.True(t, got[0].Options.IsIgnoreQueryString())
+		}
+	})
+
 	t.Run("successWithoutIDs", func(t *testing.T) {
 		db := setupResourceAddressTestDB(t)
 		repo := NewRedirectRepository(db)

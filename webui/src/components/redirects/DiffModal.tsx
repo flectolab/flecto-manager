@@ -1,6 +1,8 @@
 import type { RedirectBase } from '../../generated/graphql'
 import { RedirectStatusBadge } from './RedirectStatusBadge'
 import { RedirectTypeBadge } from './RedirectTypeBadge'
+import { RedirectOptionsBadges } from './RedirectOptionsBadges'
+import { optionsEqual } from './redirectOptions'
 
 interface DiffModalProps {
   oldData: RedirectBase
@@ -40,6 +42,7 @@ export function DiffModal({ oldData, newData, onClose }: DiffModalProps) {
   const sourceChanged = oldData.source !== newData.source
   const targetChanged = oldData.target !== newData.target
   const statusChanged = oldData.status !== newData.status
+  const optionsChanged = !optionsEqual(oldData.options, newData.options)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -111,6 +114,12 @@ export function DiffModal({ oldData, newData, onClose }: DiffModalProps) {
                 oldValue={<RedirectStatusBadge status={oldData.status} />}
                 newValue={<RedirectStatusBadge status={newData.status} />}
                 hasChanged={statusChanged}
+              />
+              <DiffRow
+                label="Options"
+                oldValue={<RedirectOptionsBadges options={oldData.options} emptyLabel="none" />}
+                newValue={<RedirectOptionsBadges options={newData.options} emptyLabel="none" />}
+                hasChanged={optionsChanged}
               />
             </tbody>
           </table>

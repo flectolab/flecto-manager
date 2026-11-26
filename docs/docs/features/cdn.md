@@ -51,8 +51,9 @@ configuration then has to be given its credentials again.
 
 ### Cloudflare
 
-Purges a Cloudflare zone **by URL** (single-file purge). Purging by prefix or by
-hostname is never used, since it would drop cached objects nobody changed.
+Purges a Cloudflare zone **by URL** (single-file purge), and **by prefix** for the
+redirects [ignoring the query string](redirects.md#query-string-options) only.
+Purging by hostname is never used, since it would drop cached objects nobody changed.
 
 | Field | Description |
 |-------|-------------|
@@ -61,12 +62,14 @@ hostname is never used, since it would drop cached objects nobody changed.
 | Hostnames | The hostnames this project serves through this zone (see [What gets purged](#what-gets-purged)) |
 | Plan | The zone's plan, which sets the purge quota |
 
-| Plan | URLs per request | URLs per second |
-|------|------------------|-----------------|
-| Free | 100 | 800 |
-| Pro | 100 | 1,500 |
-| Business | 100 | 1,500 |
-| Enterprise | 500 | 3,000 |
+| Plan | URLs per request | URLs per second | Prefixes per request | Prefix requests |
+|------|------------------|-----------------|----------------------|-----------------|
+| Free | 100 | 800 | 100 | 5 per minute, burst 25 |
+| Pro | 100 | 1,500 | 100 | 5 per second, burst 25 |
+| Business | 100 | 1,500 | 100 | 10 per second, burst 50 |
+| Enterprise | 500 | 3,000 | 100 | 50 per second, burst 500 |
+
+URL and prefix purges are paced apart, each against its own quota.
 
 Use the **Test** button after saving a configuration: it checks the credentials
 against the Cloudflare API without purging anything.
@@ -80,6 +83,7 @@ resolves to concrete URLs.
 |-------|--------|
 | `BASIC` redirect or page (`/promo`) | One URL per hostname declared on the configuration |
 | `BASIC_HOST` (`shop.example.com/promo`) | Only if that hostname is declared on the configuration |
+| `BASIC`, `BASIC_HOST` ignoring the query string | By prefix, same hostnames as above, when the provider supports it (Cloudflare does) |
 | `REGEX`, `REGEX_HOST` | Never: a CDN cannot purge by pattern |
 
 The query string is part of the purged URL: a CDN caches `/promo?utm=a` apart from
@@ -87,6 +91,13 @@ The query string is part of the purged URL: a CDN caches `/promo?utm=a` apart fr
 (`/caf%C3%A9` and `/café`), since which one a CDN keys its cache on depends on how
 it normalises requests. A form that would not be a valid URL once decoded (an encoded
 space, `%`, `?` or `#`) is only sent encoded.
+
+A redirect ignoring the query string is cached under every query string it was
+requested with (`/promo?utm_source=a`, `/promo?gclid=b`...), which nobody can list.
+A prefix purge of `www.example.com/promo` reaches all of them. It also purges what
+starts with the same path (`/promotions`), which only costs a cache miss. A provider
+without prefix purge gets the URL without query string, and the entry is counted as
+**query string variants** below: its other cached variants stay until they expire.
 
 A hostname entry starting with `*.` (for example `*.example.com`) matches any
 subdomain, so it covers `BASIC_HOST` entries such as `fr.example.com/promo`. It does
@@ -102,6 +113,7 @@ the activity journal:
 | hostname not served | A `BASIC_HOST` entry whose hostname is not declared on this configuration |
 | no hostname configured | A `BASIC` entry, but the configuration only declares `*.` hostnames |
 | invalid | An address that could not be parsed |
+| query string variants | A redirect ignoring the query string, purged by URL only: the provider has no prefix purge |
 
 ## Waiting for the agents
 

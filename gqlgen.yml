@@ -157,6 +157,10 @@ models:
     model: github.com/flectolab/flecto-manager/common/types.Redirect
   RedirectBaseInput:
     model: github.com/flectolab/flecto-manager/common/types.Redirect
+  RedirectOptions:
+    model: github.com/flectolab/flecto-manager/common/types.RedirectOptions
+  RedirectOptionsInput:
+    model: github.com/flectolab/flecto-manager/common/types.RedirectOptions
   RedirectType:
     model: github.com/flectolab/flecto-manager/common/types.RedirectType
   RedirectStatus:

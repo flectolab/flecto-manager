@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	commonTypes "github.com/flectolab/flecto-manager/common/types"
@@ -43,6 +44,7 @@ const (
 	ImportErrorInvalidStatus       ImportErrorReason = "INVALID_STATUS"
 	ImportErrorEmptySource         ImportErrorReason = "EMPTY_SOURCE"
 	ImportErrorEmptyTarget         ImportErrorReason = "EMPTY_TARGET"
+	ImportErrorInvalidOptions      ImportErrorReason = "INVALID_OPTIONS"
 	ImportErrorDuplicateInFile     ImportErrorReason = "DUPLICATE_SOURCE_IN_FILE"
 	ImportErrorSourceAlreadyExists ImportErrorReason = "SOURCE_ALREADY_EXISTS"
 	ImportErrorDatabaseError       ImportErrorReason = "DATABASE_ERROR"
@@ -81,6 +83,10 @@ type ParsedRedirectRow struct {
 	Source  string
 	Target  string
 	Status  commonTypes.RedirectStatus
+	Options commonTypes.RedirectOptions
+	// HasOptions is false for a file without the options column, whose rows keep
+	// the options of the redirect they overwrite.
+	HasOptions bool
 }
 
 // RedirectImportService handles redirect import operations
@@ -146,6 +152,14 @@ func (s *redirectImportService) ValidateFile(filename string, contentType string
 	return fmt.Errorf("invalid content type: %s", contentType)
 }
 
+// importColumns is the header of an import file, also written by the export.
+var importColumns = []string{"type", "source", "target", "status", "options"}
+
+// ImportHeader is the header line of an import file, as the export writes it.
+func ImportHeader() string {
+	return strings.Join(importColumns, "\t") + "\n"
+}
+
 // rowParser streams a CSV/TSV import file one row at a time. It owns the
 // cross-file state (line counter and the sources already seen) so that callers
 // never need to hold the whole file in memory.
@@ -153,6 +167,7 @@ type rowParser struct {
 	csv         *csv.Reader
 	seenSources map[string]int // source -> first line number
 	lineNum     int
+	withOptions bool
 }
 
 // newRowParser validates the header and returns a parser positioned on the first data row.
@@ -167,9 +182,13 @@ func newRowParser(reader io.Reader) (*rowParser, error) {
 		return nil, fmt.Errorf("failed to read header: %w", err)
 	}
 
-	expectedColumns := []string{"type", "source", "target", "status"}
+	// The options column is optional, so files written before it keep importing.
+	expectedColumns := importColumns
+	if len(header) == len(importColumns)-1 {
+		expectedColumns = importColumns[:len(importColumns)-1]
+	}
 	if len(header) != len(expectedColumns) {
-		return nil, fmt.Errorf("invalid header: expected %d columns (type, source, target, status), got %d", len(expectedColumns), len(header))
+		return nil, fmt.Errorf("invalid header: expected %d or %d columns (type, source, target, status[, options]), got %d", len(importColumns)-1, len(importColumns), len(header))
 	}
 	for i, col := range expectedColumns {
 		if strings.ToLower(strings.TrimSpace(header[i])) != col {
@@ -177,7 +196,12 @@ func newRowParser(reader io.Reader) (*rowParser, error) {
 		}
 	}
 
-	return &rowParser{csv: csvReader, seenSources: make(map[string]int), lineNum: 1}, nil
+	return &rowParser{
+		csv:         csvReader,
+		seenSources: make(map[string]int),
+		lineNum:     1,
+		withOptions: len(expectedColumns) == len(importColumns),
+	}, nil
 }
 
 // next returns the next data row. It reports io.EOF once the file is exhausted.
@@ -197,11 +221,16 @@ func (p *rowParser) next() (*ParsedRedirectRow, *ImportRedirectError, error) {
 		}, nil
 	}
 
-	if len(record) != 4 {
+	// A row may leave out an empty options cell, trailing tab included.
+	if len(record) != 4 && (!p.withOptions || len(record) != 5) {
+		expected := "4"
+		if p.withOptions {
+			expected = "4 or 5"
+		}
 		return nil, &ImportRedirectError{
 			Line:    p.lineNum,
 			Reason:  ImportErrorInvalidFormat,
-			Message: fmt.Sprintf("expected 4 columns, got %d", len(record)),
+			Message: fmt.Sprintf("expected %s columns, got %d", expected, len(record)),
 		}, nil
 	}
 
@@ -245,6 +274,21 @@ func (p *rowParser) next() (*ParsedRedirectRow, *ImportRedirectError, error) {
 		}, nil
 	}
 
+	var options commonTypes.RedirectOptions
+	if len(record) == 5 {
+		var errOptions error
+		options, errOptions = ParseRedirectOptions(record[4])
+		if errOptions != nil {
+			return nil, &ImportRedirectError{
+				Line:    p.lineNum,
+				Source:  source,
+				Target:  target,
+				Reason:  ImportErrorInvalidOptions,
+				Message: errOptions.Error(),
+			}, nil
+		}
+	}
+
 	if firstLine, exists := p.seenSources[source]; exists {
 		return nil, &ImportRedirectError{
 			Line:    p.lineNum,
@@ -257,11 +301,13 @@ func (p *rowParser) next() (*ParsedRedirectRow, *ImportRedirectError, error) {
 	p.seenSources[source] = p.lineNum
 
 	return &ParsedRedirectRow{
-		LineNum: p.lineNum,
-		Type:    redirectType,
-		Source:  source,
-		Target:  target,
-		Status:  redirectStatus,
+		LineNum:    p.lineNum,
+		Type:       redirectType,
+		Source:     source,
+		Target:     target,
+		Status:     redirectStatus,
+		Options:    options,
+		HasOptions: p.withOptions,
 	}, nil, nil
 }
 
@@ -434,6 +480,19 @@ func (s *redirectImportService) importChunk(
 		existing, hasRedirect := redirectBySource[row.Source]
 		draft, hasDraft := draftBySource[row.Source]
 
+		if !row.HasOptions {
+			var current *commonTypes.Redirect
+			switch {
+			case hasRedirect && existing.RedirectDraft != nil && existing.RedirectDraft.NewRedirect != nil:
+				current = existing.RedirectDraft.NewRedirect
+			case hasRedirect:
+				current = existing.Redirect
+			case hasDraft:
+				current = draft.NewRedirect
+			}
+			newRedirect.Options = inheritedOptions(current, newRedirect.Type)
+		}
+
 		if (hasRedirect || hasDraft) && !opts.Overwrite {
 			addImportError(result, ImportRedirectError{
 				Line:    row.LineNum,
@@ -515,7 +574,7 @@ func (s *redirectImportService) importChunk(
 	if len(draftUpdates) > 0 {
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "id"}},
-			DoUpdates: clause.AssignmentColumns([]string{"new_type", "new_source", "new_target", "new_status", "updated_at"}),
+			DoUpdates: clause.AssignmentColumns([]string{"new_type", "new_source", "new_target", "new_status", "new_options", "updated_at"}),
 		}).CreateInBatches(&draftUpdates, importInsertBatchSize).Error; err != nil {
 			return fmt.Errorf("failed to update redirect drafts: %w", err)
 		}
@@ -568,11 +627,21 @@ func (s *redirectImportService) lookupExisting(
 
 func rowToRedirect(row ParsedRedirectRow) *commonTypes.Redirect {
 	return &commonTypes.Redirect{
-		Type:   row.Type,
-		Source: row.Source,
-		Target: row.Target,
-		Status: row.Status,
+		Type:    row.Type,
+		Source:  row.Source,
+		Target:  row.Target,
+		Status:  row.Status,
+		Options: row.Options,
 	}
+}
+
+// inheritedOptions are the options a row without options column keeps from the
+// redirect it overwrites. A regex type takes none: they would be refused.
+func inheritedOptions(current *commonTypes.Redirect, newType commonTypes.RedirectType) commonTypes.RedirectOptions {
+	if current == nil || (newType != commonTypes.RedirectTypeBasic && newType != commonTypes.RedirectTypeBasicHost) {
+		return commonTypes.RedirectOptions{}
+	}
+	return current.Options
 }
 
 // addImportError records an error, keeping the reported list bounded while
@@ -592,7 +661,69 @@ func redirectsAreEqual(a, b *commonTypes.Redirect) bool {
 	return a.Type == b.Type &&
 		a.Source == b.Source &&
 		a.Target == b.Target &&
-		a.Status == b.Status
+		a.Status == b.Status &&
+		a.Options.Equal(b.Options)
+}
+
+const (
+	optionIgnoreQueryString   = "ignoreQueryString"
+	optionPreserveQueryString = "preserveQueryString"
+)
+
+// ParseRedirectOptions reads the options cell of an import file, a comma separated
+// list of key=value such as "ignoreQueryString=true,preserveQueryString=false".
+// Keys are case insensitive; an empty cell sets no option.
+func ParseRedirectOptions(s string) (commonTypes.RedirectOptions, error) {
+	var options commonTypes.RedirectOptions
+	seen := make(map[string]struct{})
+
+	for _, pair := range strings.Split(s, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+
+		key, value, found := strings.Cut(pair, "=")
+		if !found {
+			return commonTypes.RedirectOptions{}, fmt.Errorf("invalid option '%s': expected key=value", pair)
+		}
+		key = strings.TrimSpace(key)
+		enabled, err := strconv.ParseBool(strings.TrimSpace(value))
+		if err != nil {
+			return commonTypes.RedirectOptions{}, fmt.Errorf("invalid value for option '%s': must be true or false", key)
+		}
+
+		var field **bool
+		switch strings.ToLower(key) {
+		case strings.ToLower(optionIgnoreQueryString):
+			field = &options.IgnoreQueryString
+		case strings.ToLower(optionPreserveQueryString):
+			field = &options.PreserveQueryString
+		default:
+			return commonTypes.RedirectOptions{}, fmt.Errorf("unknown option '%s': must be %s or %s", key, optionIgnoreQueryString, optionPreserveQueryString)
+		}
+
+		if _, duplicate := seen[strings.ToLower(key)]; duplicate {
+			return commonTypes.RedirectOptions{}, fmt.Errorf("option '%s' is set twice", key)
+		}
+		seen[strings.ToLower(key)] = struct{}{}
+		*field = &enabled
+	}
+
+	return options, nil
+}
+
+// FormatRedirectOptions writes the options cell read back by ParseRedirectOptions.
+// Options not set are left out.
+func FormatRedirectOptions(options commonTypes.RedirectOptions) string {
+	pairs := make([]string, 0, 2)
+	if options.IgnoreQueryString != nil {
+		pairs = append(pairs, optionIgnoreQueryString+"="+strconv.FormatBool(*options.IgnoreQueryString))
+	}
+	if options.PreserveQueryString != nil {
+		pairs = append(pairs, optionPreserveQueryString+"="+strconv.FormatBool(*options.PreserveQueryString))
+	}
+	return strings.Join(pairs, ",")
 }
 
 // Helper functions moved from resolver

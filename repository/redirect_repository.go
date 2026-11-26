@@ -142,5 +142,5 @@ func (r *redirectRepository) FindAddressesByIDs(ctx context.Context, tx *gorm.DB
 	if query == nil {
 		query = r.db.WithContext(ctx)
 	}
-	return findAddressesByIDs(query.Model(&model.Redirect{}), "source", ids, batchSize)
+	return findAddressesByIDs(query.Model(&model.Redirect{}), "source", true, ids, batchSize)
 }

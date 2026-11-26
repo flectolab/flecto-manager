@@ -8,6 +8,7 @@ type Redirect {
   source: String
   target: String!
   status: RedirectStatus!
+  options: RedirectOptions!
   project: Project!
   redirectDraft: RedirectDraft
   createdAt: DateTime!

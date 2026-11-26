@@ -14,14 +14,28 @@ import {
 import { useCurrentProject } from '../hooks/useCurrentProject'
 import { usePermissions, Action, ResourceType } from '../hooks/usePermissions'
 import { RelativeTime } from '../components/RelativeTime'
-import { RedirectTypeBadge, RedirectStatusBadge, DraftBadge, RedirectTester } from '../components/redirects'
+import { RedirectTypeBadge, RedirectStatusBadge, DraftBadge, RedirectTester, RedirectOptionsBadges } from '../components/redirects'
+import {
+  optionValue,
+  optionsEqual,
+  redirectOptionDescriptions,
+  redirectOptionKeys,
+  redirectOptionLabels,
+  supportsQueryStringOptions,
+  toOptionsInput,
+  type RedirectOptionKey,
+  type RedirectOptionsValue,
+} from '../components/redirects/redirectOptions'
 
 interface FormData {
   type: RedirectType
   source: string
   target: string
   status: RedirectStatus
+  options: RedirectOptionsValue
 }
+
+type FormField = Exclude<keyof FormData, 'options'>
 
 const redirectTypes: { value: RedirectType; label: string; description: string }[] = [
   { value: 'BASIC', label: 'Basic', description: 'Simple path matching' },
@@ -125,7 +139,11 @@ export function RedirectForm() {
     source: '',
     target: '',
     status: 'MOVED_PERMANENT',
+    options: {},
   })
+  // initialOptions are the options as loaded, so unchecking an option never
+  // turns a false read from the server into "not set".
+  const [initialOptions, setInitialOptions] = useState<RedirectOptionsValue>({})
 
   const [errors, setErrors] = useState<Partial<Record<keyof FormData, string>>>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -145,20 +163,26 @@ export function RedirectForm() {
       const redirect = redirectData.projectRedirect
       // If there's a draft, use the draft's newRedirect data
       if (redirect.redirectDraft?.newRedirect) {
+        const options = toOptionsInput(redirect.redirectDraft.newRedirect.options)
         setFormData({
           type: redirect.redirectDraft.newRedirect.type,
           source: redirect.redirectDraft.newRedirect.source,
           target: redirect.redirectDraft.newRedirect.target,
           status: redirect.redirectDraft.newRedirect.status,
+          options,
         })
+        setInitialOptions(options)
       } else {
         // Use the redirect's current data
+        const options = toOptionsInput(redirect.options)
         setFormData({
           type: redirect.type,
           source: redirect.source ?? '',
           target: redirect.target,
           status: redirect.status,
+          options,
         })
+        setInitialOptions(options)
       }
     }
   }, [isEditMode, redirectData])
@@ -198,6 +222,15 @@ export function RedirectForm() {
       }
     }
 
+    if (
+      !newErrors.source &&
+      supportsQueryStringOptions(formData.type) &&
+      formData.options.ignoreQueryString &&
+      formData.source.includes('?')
+    ) {
+      newErrors.source = 'Source must not contain a query string when the query string is ignored'
+    }
+
     if (!formData.target.trim()) {
       newErrors.target = 'Target is required'
     } else if (
@@ -211,11 +244,21 @@ export function RedirectForm() {
     return Object.keys(newErrors).length === 0
   }
 
+  // toInput sends no query string option for regex types, which refuse them.
+  const toInput = (data: FormData) => ({
+    type: data.type,
+    source: data.source,
+    target: data.target,
+    status: data.status,
+    options: supportsQueryStringOptions(data.type) ? toOptionsInput(data.options) : toOptionsInput(null),
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!validate() || !namespaceCode || !projectCode) return
 
     setSubmitError(null)
+    const newRedirect = toInput(formData)
 
     try {
       if (isCreateMode) {
@@ -225,7 +268,7 @@ export function RedirectForm() {
             namespaceCode,
             projectCode,
             input: {
-              newRedirect: formData,
+              newRedirect,
             },
           },
         })
@@ -239,7 +282,7 @@ export function RedirectForm() {
               projectCode,
               redirectDraftID: redirect.redirectDraft.id,
               input: {
-                newRedirect: formData,
+                newRedirect,
               },
             },
           })
@@ -251,7 +294,7 @@ export function RedirectForm() {
               projectCode,
               input: {
                 oldRedirectID: redirectId,
-                newRedirect: formData,
+                newRedirect,
               },
             },
           })
@@ -270,10 +313,17 @@ export function RedirectForm() {
     navigate(`/${namespace}/${project}/redirects`)
   }
 
-  const handleChange = (field: keyof FormData, value: string) => {
+  const handleChange = (field: FormField, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }))
+    }
+  }
+
+  const handleOptionChange = (key: RedirectOptionKey, checked: boolean) => {
+    setFormData((prev) => ({ ...prev, options: { ...prev.options, [key]: optionValue(checked, initialOptions[key]) } }))
+    if (key === 'ignoreQueryString' && errors.source) {
+      setErrors((prev) => ({ ...prev, source: undefined }))
     }
   }
 
@@ -288,11 +338,16 @@ export function RedirectForm() {
   const oldRedirect = redirect
 
   // Helper to check if a field has changed
-  const hasChanged = (field: keyof FormData): boolean => {
+  const hasChanged = (field: FormField): boolean => {
     if (!oldRedirect || changeType === 'CREATE') return false
     const oldValue = field === 'source' ? oldRedirect.source ?? '' : oldRedirect[field]
     return formData[field] !== oldValue
   }
+
+  const optionsChanged =
+    !!oldRedirect &&
+    changeType !== 'CREATE' &&
+    !optionsEqual(supportsQueryStringOptions(formData.type) ? formData.options : null, oldRedirect.options)
 
   if (isLoading) {
     return (
@@ -467,6 +522,39 @@ export function RedirectForm() {
                 )}
               </div>
 
+              {/* Options */}
+              {supportsQueryStringOptions(formData.type) && (
+                <div>
+                  <span className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                    Query string
+                  </span>
+                  <div className="space-y-3">
+                    {redirectOptionKeys.map((key) => (
+                      <label key={key} className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={formData.options[key] === true}
+                          onChange={(e) => handleOptionChange(key, e.target.checked)}
+                          className="mt-0.5 h-4 w-4 rounded border-slate-300 dark:border-slate-600 text-brand-purple focus:ring-brand-purple/20"
+                        />
+                        <span>
+                          <span className="block text-sm text-slate-900 dark:text-white">{redirectOptionLabels[key]}</span>
+                          <span className="block text-xs text-slate-500 dark:text-slate-400">{redirectOptionDescriptions[key]}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {optionsChanged && oldRedirect && (
+                    <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01" />
+                      </svg>
+                      Changed from <RedirectOptionsBadges options={oldRedirect.options} emptyLabel="no option" />
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Actions */}
               <div className="flex gap-3 justify-end pt-4 border-t border-slate-200 dark:border-slate-700">
                 <button
@@ -497,7 +585,7 @@ export function RedirectForm() {
               <RedirectTester
                 namespaceCode={namespaceCode}
                 projectCode={projectCode}
-                redirect={formData.source && formData.target ? formData : null}
+                redirect={formData.source && formData.target ? toInput(formData) : null}
               />
             </div>
           )}
@@ -540,6 +628,10 @@ export function RedirectForm() {
                 <div className="flex justify-between items-center">
                   <span className="text-slate-500 dark:text-slate-400">Status</span>
                   <RedirectStatusBadge status={oldRedirect.status} />
+                </div>
+                <div className="flex justify-between items-center gap-2">
+                  <span className="text-slate-500 dark:text-slate-400">Options</span>
+                  <RedirectOptionsBadges options={oldRedirect.options} emptyLabel="none" />
                 </div>
               </div>
             </div>
@@ -620,6 +712,7 @@ export function RedirectForm() {
             <ol className="text-sm text-slate-600 dark:text-slate-400 space-y-1.5 list-decimal list-inside">
               <li><span className="font-medium text-slate-700 dark:text-slate-300">Host</span> - Exact host + path match</li>
               <li><span className="font-medium text-slate-700 dark:text-slate-300">Basic</span> - Exact path match</li>
+              <li><span className="font-medium text-slate-700 dark:text-slate-300">Host, then Basic</span> - Same, without the query string, for rules ignoring it</li>
               <li><span className="font-medium text-slate-700 dark:text-slate-300">Regex Host</span> - Regex with host</li>
               <li><span className="font-medium text-slate-700 dark:text-slate-300">Regex</span> - Regex path match</li>
             </ol>

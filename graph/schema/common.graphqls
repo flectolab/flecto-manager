@@ -55,11 +55,25 @@ input SortInput {
   direction: SortDirection!
 }
 
+"Redirect options. A null option is not set and behaves like false."
+type RedirectOptions {
+    "Match the source whatever the query string of the request is. BASIC and BASIC_HOST only."
+    ignoreQueryString: Boolean
+    "Forward the query string of the request to the target. BASIC and BASIC_HOST only."
+    preserveQueryString: Boolean
+}
+
+input RedirectOptionsInput {
+    ignoreQueryString: Boolean
+    preserveQueryString: Boolean
+}
+
 type RedirectBase {
     type: RedirectType!
     source: String!
     target: String!
     status: RedirectStatus!
+    options: RedirectOptions!
 }
 
 input RedirectBaseInput {
@@ -67,6 +81,7 @@ input RedirectBaseInput {
     source: String!
     target: String!
     status: RedirectStatus!
+    options: RedirectOptionsInput
 }
 
 type PageBase {

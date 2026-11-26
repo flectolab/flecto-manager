@@ -31,6 +31,8 @@ type RedirectSnapshot struct {
 	Source string                     `json:"source"`
 	Target string                     `json:"target"`
 	Status commonTypes.RedirectStatus `json:"status"`
+	// Options is nil when none is set, keeping the journal of plain redirects as it was.
+	Options *commonTypes.RedirectOptions `json:"options,omitempty"`
 }
 
 // NewRedirectSnapshot projects a redirect for the activity trail, nil in, nil out.
@@ -38,12 +40,17 @@ func NewRedirectSnapshot(redirect *commonTypes.Redirect) *RedirectSnapshot {
 	if redirect == nil {
 		return nil
 	}
-	return &RedirectSnapshot{
+	snapshot := &RedirectSnapshot{
 		Type:   redirect.Type,
 		Source: redirect.Source,
 		Target: redirect.Target,
 		Status: redirect.Status,
 	}
+	if !redirect.Options.Equal(commonTypes.RedirectOptions{}) {
+		options := redirect.Options
+		snapshot.Options = &options
+	}
+	return snapshot
 }
 
 // PageSnapshot is the activity projection of a page. The page content is

@@ -166,5 +166,5 @@ func (r *pageRepository) FindAddressesByIDs(ctx context.Context, tx *gorm.DB, id
 	if query == nil {
 		query = r.db.WithContext(ctx)
 	}
-	return findAddressesByIDs(query.Model(&model.Page{}), "path", ids, batchSize)
+	return findAddressesByIDs(query.Model(&model.Page{}), "path", false, ids, batchSize)
 }

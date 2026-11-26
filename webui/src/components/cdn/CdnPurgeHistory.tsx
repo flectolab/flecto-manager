@@ -32,6 +32,7 @@ const skipReasonLabels: Record<string, string> = {
   INVALID: 'invalid',
   TOO_MANY_TARGETS: 'too many URLs',
   CONFIG_DISABLED: 'configuration disabled',
+  QUERY_VARIANTS: 'query string variants (no prefix purge)',
 }
 
 export function CdnPurgeHistory({ namespaceCode, projectCode }: CdnPurgeHistoryProps) {

@@ -5,8 +5,9 @@ package cdn
 
 import "context"
 
-// TargetKind is the shape of a single invalidation. Only KindURL is produced:
-// prefix or hostname purges would drop objects nobody changed.
+// TargetKind is the shape of a single invalidation. KindPrefix is only produced
+// for redirects ignoring the query string, whose cached variants cannot be listed
+// by URL; hostname purges would drop objects nobody changed.
 type TargetKind string
 
 const (
@@ -49,8 +50,22 @@ type Limits struct {
 	MaxTargetsPerRequest int
 	// TargetsPerSecond is counted in targets, not requests, like Cloudflare's quota.
 	TargetsPerSecond int
+	// RequestsPerSecond, when set, paces requests instead of targets and Burst is
+	// then counted in requests.
+	RequestsPerSecond float64
 	// Burst is the token bucket size. Zero falls back to TargetsPerSecond.
 	Burst int
+	// ByKind holds the limits of a kind of target whose quota differs.
+	ByKind map[TargetKind]Limits
+}
+
+// For returns the limits applying to a kind of target.
+func (l Limits) For(kind TargetKind) Limits {
+	if limits, ok := l.ByKind[kind]; ok {
+		return limits
+	}
+	l.ByKind = nil
+	return l
 }
 
 // Provider sends invalidations to one CDN zone. It is stateless: the caller owns
