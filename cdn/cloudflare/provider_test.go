@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/flectolab/flecto-manager/cdn"
@@ -83,21 +84,27 @@ func TestNew(t *testing.T) {
 		wantErr assert.ErrorAssertionFunc
 	}{
 		{
-			name:    "successWithFree",
-			plan:    planFree,
-			want:    cdn.Limits{MaxTargetsPerRequest: 100, TargetsPerSecond: 800},
+			name: "successWithFree",
+			plan: planFree,
+			want: cdn.Limits{MaxTargetsPerRequest: 100, TargetsPerSecond: 800, ByKind: map[cdn.TargetKind]cdn.Limits{
+				cdn.KindPrefix: {MaxTargetsPerRequest: 100, RequestsPerSecond: 5.0 / 60, Burst: 25},
+			}},
 			wantErr: assert.NoError,
 		},
 		{
-			name:    "successWithBusiness",
-			plan:    planBusiness,
-			want:    cdn.Limits{MaxTargetsPerRequest: 100, TargetsPerSecond: 1500},
+			name: "successWithBusiness",
+			plan: planBusiness,
+			want: cdn.Limits{MaxTargetsPerRequest: 100, TargetsPerSecond: 1500, ByKind: map[cdn.TargetKind]cdn.Limits{
+				cdn.KindPrefix: {MaxTargetsPerRequest: 100, RequestsPerSecond: 10, Burst: 50},
+			}},
 			wantErr: assert.NoError,
 		},
 		{
-			name:    "successWithEnterprise",
-			plan:    planEnterprise,
-			want:    cdn.Limits{MaxTargetsPerRequest: 500, TargetsPerSecond: 3000},
+			name: "successWithEnterprise",
+			plan: planEnterprise,
+			want: cdn.Limits{MaxTargetsPerRequest: 500, TargetsPerSecond: 3000, ByKind: map[cdn.TargetKind]cdn.Limits{
+				cdn.KindPrefix: {MaxTargetsPerRequest: 100, RequestsPerSecond: 50, Burst: 500},
+			}},
 			wantErr: assert.NoError,
 		},
 		{
@@ -138,7 +145,7 @@ func TestProvider_Capabilities(t *testing.T) {
 	got := provider.Capabilities()
 
 	assert.True(t, got.Supports(cdn.KindURL))
-	assert.False(t, got.Supports(cdn.KindPrefix))
+	assert.True(t, got.Supports(cdn.KindPrefix))
 	assert.False(t, got.Supports(cdn.KindHostname))
 }
 
@@ -249,15 +256,46 @@ func TestProvider_Purge(t *testing.T) {
 		assert.False(t, called)
 	})
 
+	t.Run("successSendsPrefixesWithoutScheme", func(t *testing.T) {
+		var raw []byte
+		provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			raw, _ = io.ReadAll(r.Body)
+			writeAPIResponse(t, w, http.StatusOK, apiResponse{Success: true})
+		})
+
+		err := provider.Purge(context.Background(), []cdn.Target{
+			{Kind: cdn.KindPrefix, Host: "a.com", Path: "/x"},
+			{Kind: cdn.KindPrefix, Host: "b.com", Path: "/y.html"},
+		})
+
+		assert.NoError(t, err)
+		assert.JSONEq(t, `{"prefixes":["a.com/x","b.com/y.html"]}`, string(raw))
+	})
+
 	t.Run("failWithUnsupportedTargetKind", func(t *testing.T) {
 		called := false
 		provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
 			called = true
 		})
 
-		err := provider.Purge(context.Background(), []cdn.Target{{Kind: cdn.KindPrefix, Host: "a.com", Path: "/x"}})
+		err := provider.Purge(context.Background(), []cdn.Target{{Kind: cdn.KindHostname, Host: "a.com"}})
 
-		assert.ErrorContains(t, err, "cannot purge a PREFIX target")
+		assert.ErrorContains(t, err, "cannot purge a HOSTNAME target")
+		assert.False(t, called)
+	})
+
+	t.Run("failWithMixedKinds", func(t *testing.T) {
+		called := false
+		provider := newTestProvider(t, func(w http.ResponseWriter, r *http.Request) {
+			called = true
+		})
+
+		err := provider.Purge(context.Background(), []cdn.Target{
+			{Kind: cdn.KindURL, Host: "a.com", Path: "/x"},
+			{Kind: cdn.KindPrefix, Host: "a.com", Path: "/y"},
+		})
+
+		assert.ErrorContains(t, err, "cannot mix")
 		assert.False(t, called)
 	})
 
@@ -315,6 +353,43 @@ func TestRenderURL(t *testing.T) {
 			got, err := renderURL(tt.target)
 
 			tt.wantErr(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestRenderPrefix(t *testing.T) {
+	tests := []struct {
+		name    string
+		target  cdn.Target
+		want    string
+		wantErr string
+	}{
+		{name: "successHostAndPath", target: cdn.Target{Kind: cdn.KindPrefix, Host: "a.com", Path: "/blog/x.html"}, want: "a.com/blog/x.html"},
+		{name: "failWithUrlTarget", target: cdn.Target{Kind: cdn.KindURL, Host: "a.com", Path: "/x"}, wantErr: "by prefix"},
+		{name: "failWithoutHost", target: cdn.Target{Kind: cdn.KindPrefix, Path: "/x"}, wantErr: "needs a host and a path"},
+		{name: "failWithQueryString", target: cdn.Target{Kind: cdn.KindPrefix, Host: "a.com", Path: "/x?a=b"}, wantErr: "query string"},
+		{name: "failWithFragment", target: cdn.Target{Kind: cdn.KindPrefix, Host: "a.com", Path: "/x#top"}, wantErr: "fragment"},
+		{
+			name:    "failWithTooManySeparators",
+			target:  cdn.Target{Kind: cdn.KindPrefix, Host: "a.com", Path: strings.Repeat("/a", maxPrefixSeparators+1)},
+			wantErr: "path separators",
+		},
+		{
+			name:   "successWithMaxSeparators",
+			target: cdn.Target{Kind: cdn.KindPrefix, Host: "a.com", Path: strings.Repeat("/a", maxPrefixSeparators)},
+			want:   "a.com" + strings.Repeat("/a", maxPrefixSeparators),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := renderPrefix(tt.target)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
 			assert.Equal(t, tt.want, got)
 		})
 	}

@@ -9,12 +9,18 @@ import (
 
 // findAddressesByIDs reads addresses by primary key in chunks, to stay under the
 // placeholder limit. sourceColumn is set by the caller, never from user input.
-func findAddressesByIDs(query *gorm.DB, sourceColumn string, ids []int64, batchSize int) ([]model.ResourceAddress, error) {
+// withOptions also reads the options column, which pages do not have.
+func findAddressesByIDs(query *gorm.DB, sourceColumn string, withOptions bool, ids []int64, batchSize int) ([]model.ResourceAddress, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
 	if batchSize <= 0 {
 		batchSize = len(ids)
+	}
+
+	columns := fmt.Sprintf("id, type, %s AS source", sourceColumn)
+	if withOptions {
+		columns += ", options"
 	}
 
 	addresses := make([]model.ResourceAddress, 0, len(ids))
@@ -27,7 +33,7 @@ func findAddressesByIDs(query *gorm.DB, sourceColumn string, ids []int64, batchS
 
 		var chunk []model.ResourceAddress
 		err := query.Session(&gorm.Session{}).
-			Select(fmt.Sprintf("id, type, %s AS source", sourceColumn)).
+			Select(columns).
 			Where("id IN ?", ids[start:end]).
 			Scan(&chunk).Error
 		if err != nil {

@@ -144,6 +144,10 @@ func (r *queryResolver) ProjectRedirectDraftCheck(ctx context.Context, namespace
 		}
 		for _, redirect := range redirects {
 			if *scope == graph.RedirectScopeProjectWithDraft && redirect.RedirectDraft != nil {
+				// A pending deletion has no new version: the redirect is about to disappear.
+				if redirect.RedirectDraft.NewRedirect == nil {
+					continue
+				}
 				err = treeMatcher.Insert(redirect.RedirectDraft.NewRedirect)
 			} else if *scope == graph.RedirectScopeProject && !*redirect.IsPublished {
 				continue

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/flectolab/flecto-manager/cdn"
+	commonTypes "github.com/flectolab/flecto-manager/common/types"
 	appContext "github.com/flectolab/flecto-manager/context"
 	"github.com/flectolab/flecto-manager/crypt"
 	mockFlectoRepository "github.com/flectolab/flecto-manager/mocks/flecto-manager/repository"
@@ -101,13 +102,16 @@ func TestCdnPurgeService_Collect(t *testing.T) {
 
 		deps.configRepo.EXPECT().FindEnabledByProject(ctx, "ns1", "proj1").
 			Return([]model.ProjectCdnConfig{testCdnConfig(1, "prod", []string{"www.example.com"})}, nil)
-		deps.redirectRepo.EXPECT().FindAddressesByIDs(ctx, nil, []int64{7}, cdnAddressBatchSize).
-			Return([]model.ResourceAddress{{ID: 7, Type: "BASIC", Source: "/old"}}, nil)
+		deps.redirectRepo.EXPECT().FindAddressesByIDs(ctx, nil, []int64{7, 8}, cdnAddressBatchSize).
+			Return([]model.ResourceAddress{
+				{ID: 7, Type: "BASIC", Source: "/old"},
+				{ID: 8, Type: "BASIC", Source: "/old-ignored", Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)}},
+			}, nil)
 		deps.pageRepo.EXPECT().FindAddressesByIDs(ctx, nil, []int64(nil), cdnAddressBatchSize).
 			Return(nil, nil)
 
 		plan, err := deps.svc.Collect(ctx, "ns1", "proj1", model.CdnDraftChanges{
-			RedirectIDs: []int64{7},
+			RedirectIDs: []int64{7, 8},
 			NewEntries:  []cdn.Entry{{Type: "BASIC", Source: "/new"}},
 		})
 
@@ -115,6 +119,7 @@ func TestCdnPurgeService_Collect(t *testing.T) {
 		assert.Equal(t, []cdn.Entry{
 			{Type: "BASIC", Source: "/new"},
 			{Type: "BASIC", Source: "/old"},
+			{Type: "BASIC", Source: "/old-ignored", IgnoreQueryString: true},
 		}, plan.Entries)
 		assert.Len(t, plan.Configs, 1)
 	})
@@ -238,6 +243,45 @@ func TestCdnPurgeService_Enqueue(t *testing.T) {
 			{Kind: cdn.KindURL, Host: "example.com", Path: "/promo"},
 			{Kind: cdn.KindURL, Host: "www.example.com", Path: "/promo"},
 		}, job.Targets)
+	})
+
+	t.Run("successPurgesByPrefixAnEntryIgnoringQueryString", func(t *testing.T) {
+		deps := setupCdnPurgeTest(t)
+		defer deps.ctrl.Finish()
+
+		plan := basePlan(
+			[]cdn.Entry{
+				{Type: "BASIC", Source: "/promo", IgnoreQueryString: true},
+				{Type: "BASIC", Source: "/other"},
+			},
+			testCdnConfig(1, "prod", []string{"www.example.com"}),
+		)
+
+		assert.NoError(t, deps.svc.Enqueue(context.Background(), deps.db, plan, 1))
+
+		var job model.ProjectCdnPurgeJob
+		assert.NoError(t, deps.db.First(&job).Error)
+		assert.Equal(t, []cdn.Target{
+			{Kind: cdn.KindPrefix, Host: "www.example.com", Path: "/promo"},
+			{Kind: cdn.KindURL, Host: "www.example.com", Path: "/other"},
+		}, job.Targets)
+		assert.Empty(t, job.Skipped)
+	})
+
+	t.Run("successPurgesByUrlWhenTheProviderTypeIsUnknown", func(t *testing.T) {
+		deps := setupCdnPurgeTest(t)
+		defer deps.ctrl.Finish()
+
+		config := testCdnConfig(1, "prod", []string{"www.example.com"})
+		config.Type = "removed-provider"
+		plan := basePlan([]cdn.Entry{{Type: "BASIC", Source: "/promo", IgnoreQueryString: true}}, config)
+
+		assert.NoError(t, deps.svc.Enqueue(context.Background(), deps.db, plan, 1))
+
+		var job model.ProjectCdnPurgeJob
+		assert.NoError(t, deps.db.First(&job).Error)
+		assert.Equal(t, []cdn.Target{{Kind: cdn.KindURL, Host: "www.example.com", Path: "/promo"}}, job.Targets)
+		assert.Equal(t, map[string]int{string(cdn.SkipReasonQueryVariants): 1}, job.Skipped)
 	})
 
 	t.Run("successRecordsSkippedEntries", func(t *testing.T) {

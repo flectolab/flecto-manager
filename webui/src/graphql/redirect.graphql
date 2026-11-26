@@ -8,6 +8,10 @@ query GetProjectRedirects($namespaceCode: String!, $projectCode: String!, $pagin
       source
       target
       status
+      options {
+        ignoreQueryString
+        preserveQueryString
+      }
       createdAt
       updatedAt
       redirectDraft {
@@ -18,6 +22,10 @@ query GetProjectRedirects($namespaceCode: String!, $projectCode: String!, $pagin
           source
           target
           status
+          options {
+            ignoreQueryString
+            preserveQueryString
+          }
         }
       }
     }
@@ -34,6 +42,10 @@ query GetProjectRedirect($namespaceCode: String!, $projectCode: String!, $redire
     source
     target
     status
+    options {
+      ignoreQueryString
+      preserveQueryString
+    }
     isPublished
     publishedAt
     createdAt
@@ -46,6 +58,10 @@ query GetProjectRedirect($namespaceCode: String!, $projectCode: String!, $redire
         source
         target
         status
+        options {
+          ignoreQueryString
+          preserveQueryString
+        }
       }
       createdAt
       updatedAt
@@ -63,6 +79,10 @@ query GetProjectRedirectDraft($namespaceCode: String!, $projectCode: String!, $r
       source
       target
       status
+      options {
+        ignoreQueryString
+        preserveQueryString
+      }
       createdAt
       updatedAt
     }
@@ -71,6 +91,10 @@ query GetProjectRedirectDraft($namespaceCode: String!, $projectCode: String!, $r
       source
       target
       status
+      options {
+        ignoreQueryString
+        preserveQueryString
+      }
     }
     createdAt
     updatedAt
@@ -88,12 +112,20 @@ query GetProjectRedirectDrafts($namespaceCode: String!, $projectCode: String!, $
         source
         target
         status
+        options {
+          ignoreQueryString
+          preserveQueryString
+        }
       }
       newRedirect {
         type
         source
         target
         status
+        options {
+          ignoreQueryString
+          preserveQueryString
+        }
       }
       createdAt
       updatedAt
@@ -116,6 +148,10 @@ mutation CreateRedirectDraft($namespaceCode: String!, $projectCode: String!, $in
       source
       target
       status
+      options {
+        ignoreQueryString
+        preserveQueryString
+      }
     }
   }
 }
@@ -128,6 +164,10 @@ mutation UpdateRedirectDraft($namespaceCode: String!, $projectCode: String!, $re
       source
       target
       status
+      options {
+        ignoreQueryString
+        preserveQueryString
+      }
     }
   }
 }
@@ -180,6 +220,10 @@ query CheckRedirect($namespaceCode: String!, $projectCode: String!, $redirectChe
       source
       target
       status
+      options {
+        ignoreQueryString
+        preserveQueryString
+      }
     }
   }
 }

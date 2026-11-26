@@ -178,7 +178,7 @@ func TestRedirectImportService_ParseFile(t *testing.T) {
 		rows, errs, err := svc.ParseFile(reader)
 
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "expected 4 columns")
+		assert.Contains(t, err.Error(), "expected 4 or 5 columns")
 		assert.Nil(t, rows)
 		assert.Nil(t, errs)
 	})
@@ -376,6 +376,161 @@ func TestRedirectImportService_ParseFile(t *testing.T) {
 		assert.Len(t, errs, 1)
 		assert.Equal(t, ImportErrorEmptyTarget, errs[0].Reason)
 	})
+
+	t.Run("options column", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		input := "type\tsource\ttarget\tstatus\toptions\n" +
+			"BASIC\t/a\t/new-a\t301\tignoreQueryString=true,preserveQueryString=false\n" +
+			"BASIC\t/b\t/new-b\t301\t\n" +
+			"BASIC\t/c\t/new-c\t301\n"
+
+		rows, errs, err := svc.ParseFile(strings.NewReader(input))
+
+		assert.NoError(t, err)
+		assert.Empty(t, errs)
+		if assert.Len(t, rows, 3) {
+			assert.True(t, rows[0].HasOptions)
+			assert.Equal(t, commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true), PreserveQueryString: types.Ptr(false)}, rows[0].Options)
+			assert.Equal(t, commonTypes.RedirectOptions{}, rows[1].Options)
+			assert.Equal(t, commonTypes.RedirectOptions{}, rows[2].Options)
+		}
+	})
+
+	t.Run("error invalid options", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		input := "type\tsource\ttarget\tstatus\toptions\nBASIC\t/a\t/new-a\t301\tsortQueryString=true\n"
+
+		rows, errs, err := svc.ParseFile(strings.NewReader(input))
+
+		assert.NoError(t, err)
+		assert.Len(t, rows, 0)
+		if assert.Len(t, errs, 1) {
+			assert.Equal(t, ImportErrorInvalidOptions, errs[0].Reason)
+			assert.Equal(t, "/a", errs[0].Source)
+		}
+	})
+
+	t.Run("error options cell without options header", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		input := "type\tsource\ttarget\tstatus\nBASIC\t/a\t/new-a\t301\tignoreQueryString=true\n"
+
+		rows, errs, err := svc.ParseFile(strings.NewReader(input))
+
+		assert.NoError(t, err)
+		assert.Len(t, rows, 0)
+		if assert.Len(t, errs, 1) {
+			assert.Equal(t, ImportErrorInvalidFormat, errs[0].Reason)
+			assert.Contains(t, errs[0].Message, "expected 4 columns")
+		}
+	})
+
+	t.Run("error wrong options header", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		_, _, err := svc.ParseFile(strings.NewReader("type\tsource\ttarget\tstatus\tflags\n"))
+
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "column 5 should be 'options'")
+	})
+}
+
+func TestInheritedOptions(t *testing.T) {
+	ignore := commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)}
+
+	tests := []struct {
+		name    string
+		current *commonTypes.Redirect
+		newType commonTypes.RedirectType
+		want    commonTypes.RedirectOptions
+	}{
+		{name: "no current redirect", current: nil, newType: commonTypes.RedirectTypeBasic, want: commonTypes.RedirectOptions{}},
+		{name: "basic keeps the options", current: &commonTypes.Redirect{Options: ignore}, newType: commonTypes.RedirectTypeBasic, want: ignore},
+		{name: "basic host keeps the options", current: &commonTypes.Redirect{Options: ignore}, newType: commonTypes.RedirectTypeBasicHost, want: ignore},
+		{name: "regex drops the options", current: &commonTypes.Redirect{Options: ignore}, newType: commonTypes.RedirectTypeRegex, want: commonTypes.RedirectOptions{}},
+		{name: "regex host drops the options", current: &commonTypes.Redirect{Options: ignore}, newType: commonTypes.RedirectTypeRegexHost, want: commonTypes.RedirectOptions{}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, inheritedOptions(tt.current, tt.newType))
+		})
+	}
+}
+
+func TestParseRedirectOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    commonTypes.RedirectOptions
+		wantErr string
+	}{
+		{name: "empty", input: "", want: commonTypes.RedirectOptions{}},
+		{name: "blank", input: "  ", want: commonTypes.RedirectOptions{}},
+		{
+			name:  "both options",
+			input: "ignoreQueryString=true,preserveQueryString=false",
+			want:  commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true), PreserveQueryString: types.Ptr(false)},
+		},
+		{
+			name:  "case insensitive keys and spaces",
+			input: " IGNOREQUERYSTRING = 1 , ",
+			want:  commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+		},
+		{name: "missing value", input: "ignoreQueryString", wantErr: "expected key=value"},
+		{name: "invalid value", input: "ignoreQueryString=yes", wantErr: "must be true or false"},
+		{name: "unknown option", input: "sortQueryString=true", wantErr: "unknown option"},
+		{name: "duplicate option", input: "ignoreQueryString=true,ignorequerystring=false", wantErr: "set twice"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ParseRedirectOptions(tt.input)
+			if tt.wantErr != "" {
+				assert.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFormatRedirectOptions(t *testing.T) {
+	tests := []struct {
+		name    string
+		options commonTypes.RedirectOptions
+		want    string
+	}{
+		{name: "not set", options: commonTypes.RedirectOptions{}, want: ""},
+		{name: "false is written", options: commonTypes.RedirectOptions{PreserveQueryString: types.Ptr(false)}, want: "preserveQueryString=false"},
+		{
+			name:    "both options",
+			options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true), PreserveQueryString: types.Ptr(true)},
+			want:    "ignoreQueryString=true,preserveQueryString=true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := FormatRedirectOptions(tt.options)
+			assert.Equal(t, tt.want, got)
+
+			parsed, err := ParseRedirectOptions(got)
+			assert.NoError(t, err)
+			assert.Equal(t, tt.options, parsed)
+		})
+	}
+}
+
+func TestImportHeader(t *testing.T) {
+	assert.Equal(t, "type\tsource\ttarget\tstatus\toptions\n", ImportHeader())
 }
 
 // tsvFile builds an import file from "type\tsource\ttarget\tstatus" rows.
@@ -625,6 +780,122 @@ func TestRedirectImportService_Import(t *testing.T) {
 		assert.Equal(t, 1, result.SkippedCount)
 	})
 
+	t.Run("a file without options column keeps the published options", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		ignore := commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)}
+		db.Create(&model.Redirect{
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
+			Redirect: &commonTypes.Redirect{
+				Type: commonTypes.RedirectTypeBasic, Source: "/same",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent, Options: ignore,
+			},
+		})
+		db.Create(&model.Redirect{
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
+			Redirect: &commonTypes.Redirect{
+				Type: commonTypes.RedirectTypeBasic, Source: "/changed",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent, Options: ignore,
+			},
+		})
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/same\t/target\t301",
+			"BASIC\t/changed\t/other-target\t301",
+		), ImportRedirectOptions{Overwrite: true})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, result.SkippedCount, "same data and no options column: nothing changes")
+		assert.Equal(t, 1, result.ImportedCount)
+
+		var draft model.RedirectDraft
+		assert.NoError(t, db.Where("new_source = ?", "/changed").First(&draft).Error)
+		assert.Equal(t, "/other-target", draft.NewRedirect.Target)
+		assert.Equal(t, ignore, draft.NewRedirect.Options)
+	})
+
+	t.Run("a file without options column keeps the options of a pending draft", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		preserve := commonTypes.RedirectOptions{PreserveQueryString: types.Ptr(true)}
+		redirect := &model.Redirect{NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(false)}
+		db.Create(redirect)
+		draft := &model.RedirectDraft{
+			NamespaceCode: "ns", ProjectCode: "proj",
+			OldRedirectID: &redirect.ID, ChangeType: model.DraftChangeTypeCreate,
+			NewRedirect: &commonTypes.Redirect{
+				Type: commonTypes.RedirectTypeBasic, Source: "/a",
+				Target: "/old-target", Status: commonTypes.RedirectStatusMovedPermanent, Options: preserve,
+			},
+		}
+		db.Create(draft)
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"BASIC\t/a\t/new-target\t301",
+		), ImportRedirectOptions{Overwrite: true})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, result.ImportedCount)
+
+		var updated model.RedirectDraft
+		db.First(&updated, draft.ID)
+		assert.Equal(t, "/new-target", updated.NewRedirect.Target)
+		assert.Equal(t, preserve, updated.NewRedirect.Options)
+	})
+
+	t.Run("a file without options column drops the options of a redirect turned into a regex", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		db.Create(&model.Redirect{
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
+			Redirect: &commonTypes.Redirect{
+				Type: commonTypes.RedirectTypeBasic, Source: "/a",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+		})
+
+		result, err := svc.Import(context.Background(), "ns", "proj", tsvFile(
+			"REGEX\t/a\t/target\t301",
+		), ImportRedirectOptions{Overwrite: true})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, result.ImportedCount)
+
+		var draft model.RedirectDraft
+		assert.NoError(t, db.First(&draft).Error)
+		assert.Equal(t, commonTypes.RedirectTypeRegex, draft.NewRedirect.Type)
+		assert.Equal(t, commonTypes.RedirectOptions{}, draft.NewRedirect.Options)
+	})
+
+	t.Run("an empty options cell clears the options", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		db.Create(&model.Redirect{
+			NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(true),
+			Redirect: &commonTypes.Redirect{
+				Type: commonTypes.RedirectTypeBasic, Source: "/a",
+				Target: "/target", Status: commonTypes.RedirectStatusMovedPermanent,
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+		})
+
+		result, err := svc.Import(context.Background(), "ns", "proj", strings.NewReader(
+			"type\tsource\ttarget\tstatus\toptions\nBASIC\t/a\t/target\t301\t\n",
+		), ImportRedirectOptions{Overwrite: true})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, result.ImportedCount)
+
+		var draft model.RedirectDraft
+		assert.NoError(t, db.First(&draft).Error)
+		assert.Equal(t, commonTypes.RedirectOptions{}, draft.NewRedirect.Options)
+	})
+
 	t.Run("create draft for published redirect with different data", func(t *testing.T) {
 		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
 		defer ctrl.Finish()
@@ -682,6 +953,69 @@ func TestRedirectImportService_Import(t *testing.T) {
 		assert.Equal(t, "/updated-target", updated.NewRedirect.Target)
 		assert.Equal(t, commonTypes.RedirectStatusFound, updated.NewRedirect.Status)
 		assert.Equal(t, model.DraftChangeTypeCreate, updated.ChangeType, "change type must be preserved")
+	})
+
+	t.Run("options are stored on new drafts", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		result, err := svc.Import(context.Background(), "ns", "proj", strings.NewReader(
+			"type\tsource\ttarget\tstatus\toptions\n"+
+				"BASIC\t/a\t/new-a\t301\tignoreQueryString=true,preserveQueryString=true\n",
+		), ImportRedirectOptions{})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, result.ImportedCount)
+
+		var draft model.RedirectDraft
+		db.First(&draft)
+		assert.Equal(t, commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true), PreserveQueryString: types.Ptr(true)}, draft.NewRedirect.Options)
+	})
+
+	t.Run("options rejected by validation are reported", func(t *testing.T) {
+		ctrl, _, _, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		result, err := svc.Import(context.Background(), "ns", "proj", strings.NewReader(
+			"type\tsource\ttarget\tstatus\toptions\n"+
+				"REGEX\t^/a\t/new-a\t301\tignoreQueryString=true\n",
+		), ImportRedirectOptions{})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 0, result.ImportedCount)
+		if assert.Len(t, result.Errors, 1) {
+			assert.Equal(t, ImportErrorInvalidRedirect, result.Errors[0].Reason)
+		}
+	})
+
+	t.Run("changed options update an existing draft", func(t *testing.T) {
+		ctrl, _, db, svc := setupRedirectImportServiceTest(t)
+		defer ctrl.Finish()
+
+		redirect := &model.Redirect{NamespaceCode: "ns", ProjectCode: "proj", IsPublished: types.Ptr(false)}
+		db.Create(redirect)
+		draft := &model.RedirectDraft{
+			NamespaceCode: "ns", ProjectCode: "proj",
+			OldRedirectID: &redirect.ID, ChangeType: model.DraftChangeTypeCreate,
+			NewRedirect: &commonTypes.Redirect{
+				Type: commonTypes.RedirectTypeBasic, Source: "/a",
+				Target: "/new-a", Status: commonTypes.RedirectStatusMovedPermanent,
+			},
+		}
+		db.Create(draft)
+
+		result, err := svc.Import(context.Background(), "ns", "proj", strings.NewReader(
+			"type\tsource\ttarget\tstatus\toptions\n"+
+				"BASIC\t/a\t/new-a\t301\tignoreQueryString=true\n",
+		), ImportRedirectOptions{Overwrite: true})
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, result.ImportedCount)
+		assert.Equal(t, 0, result.SkippedCount)
+
+		var updated model.RedirectDraft
+		db.First(&updated, draft.ID)
+		assert.Equal(t, commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)}, updated.NewRedirect.Options)
 	})
 
 	t.Run("skip when unpublished draft data is identical", func(t *testing.T) {
@@ -980,6 +1314,30 @@ func TestRedirectsAreEqual(t *testing.T) {
 				Status: commonTypes.RedirectStatusFound,
 			},
 			want: false,
+		},
+		{
+			name: "different options",
+			a:    &commonTypes.Redirect{Type: commonTypes.RedirectTypeBasic, Source: "/source"},
+			b: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasic,
+				Source:  "/source",
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(false)},
+			},
+			want: false,
+		},
+		{
+			name: "same options",
+			a: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasic,
+				Source:  "/source",
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+			b: &commonTypes.Redirect{
+				Type:    commonTypes.RedirectTypeBasic,
+				Source:  "/source",
+				Options: commonTypes.RedirectOptions{IgnoreQueryString: types.Ptr(true)},
+			},
+			want: true,
 		},
 	}
 

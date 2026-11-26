@@ -20,12 +20,18 @@ const (
 	SkipReasonNoHost SkipReason = "NO_HOST"
 	// SkipReasonInvalid is an unparsable entry; published data should never hit it.
 	SkipReasonInvalid SkipReason = "INVALID"
+	// SkipReasonQueryVariants is an entry ignoring the query string purged by URL
+	// only, the provider having no prefix purge: its cached variants stay.
+	SkipReasonQueryVariants SkipReason = "QUERY_VARIANTS"
 )
 
 // Entry is a published redirect or page whose cached response must be invalidated.
 type Entry struct {
 	Type   string
 	Source string
+	// IgnoreQueryString entries are cached under every query string they were
+	// requested with, which only a prefix purge reaches.
+	IgnoreQueryString bool
 }
 
 // RedirectEntry projects a redirect on its source, where the response is cached.
@@ -33,7 +39,11 @@ func RedirectEntry(redirect *commonTypes.Redirect) Entry {
 	if redirect == nil {
 		return Entry{}
 	}
-	return Entry{Type: string(redirect.Type), Source: redirect.Source}
+	return Entry{
+		Type:              string(redirect.Type),
+		Source:            redirect.Source,
+		IgnoreQueryString: redirect.Options.IsIgnoreQueryString(),
+	}
 }
 
 // PageEntry projects a page.
@@ -103,6 +113,7 @@ type Planner struct {
 	// patterns are "*." wildcards: they match a host but cannot expand a host-less
 	// entry, "*.example.com" not being an address a purge can be sent to.
 	patterns []string
+	prefix   bool
 }
 
 // NewPlanner builds a planner from normalised, deduplicated and sorted hosts.
@@ -130,6 +141,12 @@ func NewPlanner(hosts []string) *Planner {
 	sort.Strings(planner.hosts)
 	sort.Strings(planner.patterns)
 	return planner
+}
+
+// WithCapabilities lets the planner use the prefix purge when the provider has one.
+func (p *Planner) WithCapabilities(capabilities Capabilities) *Planner {
+	p.prefix = capabilities.Supports(KindPrefix)
+	return p
 }
 
 func (p *Planner) Hosts() []string {
@@ -168,10 +185,21 @@ func (p *Planner) Build(entries []Entry) Plan {
 			continue
 		}
 
-		targets, skip := p.expand(location)
+		kind := KindURL
+		if entry.IgnoreQueryString && p.prefix {
+			kind = KindPrefix
+		}
+
+		targets, skip := p.expand(location, kind)
 		if skip != "" {
 			plan.Skipped[skip]++
 			continue
+		}
+		if entry.IgnoreQueryString && !p.prefix {
+			// Purged by URL anyway: the address without query string is still worth it,
+			// but its other cached variants stay. Counted once the entry is known to be
+			// purgeable, so it is never counted under two reasons.
+			plan.Skipped[SkipReasonQueryVariants]++
 		}
 
 		for _, target := range targets {
@@ -183,18 +211,26 @@ func (p *Planner) Build(entries []Entry) Plan {
 		}
 	}
 
-	sort.Slice(plan.Targets, func(i, j int) bool {
-		if plan.Targets[i].Host != plan.Targets[j].Host {
-			return plan.Targets[i].Host < plan.Targets[j].Host
-		}
-		return plan.Targets[i].Path < plan.Targets[j].Path
-	})
-
+	SortTargets(plan.Targets)
 	return plan
 }
 
+// SortTargets groups targets by kind, so a batch is rarely cut short by a change
+// of kind, then sorts them by host and path.
+func SortTargets(targets []Target) {
+	sort.Slice(targets, func(i, j int) bool {
+		if targets[i].Kind != targets[j].Kind {
+			return targets[i].Kind < targets[j].Kind
+		}
+		if targets[i].Host != targets[j].Host {
+			return targets[i].Host < targets[j].Host
+		}
+		return targets[i].Path < targets[j].Path
+	})
+}
+
 // expand turns a host-less location into one target per served host.
-func (p *Planner) expand(location Location) ([]Target, SkipReason) {
+func (p *Planner) expand(location Location, kind TargetKind) ([]Target, SkipReason) {
 	hosts := p.hosts
 	if location.Host != "" {
 		if !p.Serves(location.Host) {
@@ -211,7 +247,7 @@ func (p *Planner) expand(location Location) ([]Target, SkipReason) {
 	targets := make([]Target, 0, len(hosts)*len(paths))
 	for _, host := range hosts {
 		for _, path := range paths {
-			targets = append(targets, Target{Kind: KindURL, Host: host, Path: path})
+			targets = append(targets, Target{Kind: kind, Host: host, Path: path})
 		}
 	}
 	return targets, ""
@@ -250,22 +286,21 @@ func isSendablePath(path string) bool {
 	return true
 }
 
-// Batch cuts targets into slices of at most size; size <= 0 yields a single batch.
-func Batch(targets []Target, size int) [][]Target {
-	if len(targets) == 0 {
-		return nil
-	}
-	if size <= 0 {
-		return [][]Target{targets}
-	}
+// Batch cuts targets into slices of a single kind, each holding at most the
+// MaxTargetsPerRequest of that kind; zero or less puts no bound on a batch.
+func Batch(targets []Target, limits Limits) [][]Target {
+	var batches [][]Target
 
-	batches := make([][]Target, 0, (len(targets)+size-1)/size)
-	for start := 0; start < len(targets); start += size {
-		end := start + size
-		if end > len(targets) {
-			end = len(targets)
+	for start := 0; start < len(targets); {
+		kind := targets[start].Kind
+		size := limits.For(kind).MaxTargetsPerRequest
+
+		end := start + 1
+		for end < len(targets) && targets[end].Kind == kind && (size <= 0 || end-start < size) {
+			end++
 		}
 		batches = append(batches, targets[start:end])
+		start = end
 	}
 
 	return batches

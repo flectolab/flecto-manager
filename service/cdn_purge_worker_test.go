@@ -18,6 +18,7 @@ import (
 	"github.com/flectolab/flecto-manager/types"
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/mock/gomock"
+	"golang.org/x/time/rate"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -209,6 +210,38 @@ func TestCdnPurgeWorker_Run(t *testing.T) {
 		assert.Len(t, provider.batches, 3)
 		assert.Len(t, provider.batches[0], 2)
 		assert.Len(t, provider.batches[2], 1)
+	})
+
+	t.Run("successSendsEachKindInItsOwnBatches", func(t *testing.T) {
+		deps := setupCdnPurgeWorkerTest(t)
+		defer deps.ctrl.Finish()
+		provider := registerWorkerProvider(cdn.Limits{
+			MaxTargetsPerRequest: 10,
+			TargetsPerSecond:     1000,
+			ByKind: map[cdn.TargetKind]cdn.Limits{
+				cdn.KindPrefix: {MaxTargetsPerRequest: 1, RequestsPerSecond: 1000, Burst: 1},
+			},
+		})
+		job := deps.queueJob(t, 2)
+		job.Targets = append([]cdn.Target{
+			{Kind: cdn.KindPrefix, Host: "www.example.com", Path: "/x"},
+			{Kind: cdn.KindPrefix, Host: "www.example.com", Path: "/y"},
+		}, job.Targets...)
+		job.Requested = len(job.Targets)
+		assert.NoError(t, deps.db.Save(job).Error)
+		deps.agentRepo.EXPECT().FindByProject(gomock.Any(), "ns1", "proj1").Return([]model.Agent{convergedAgent(2)}, nil)
+
+		_, err := deps.worker.Run(context.Background())
+
+		assert.NoError(t, err)
+		if assert.Len(t, provider.batches, 3) {
+			assert.Equal(t, []cdn.Target{{Kind: cdn.KindPrefix, Host: "www.example.com", Path: "/x"}}, provider.batches[0])
+			assert.Equal(t, []cdn.Target{{Kind: cdn.KindPrefix, Host: "www.example.com", Path: "/y"}}, provider.batches[1])
+			assert.Len(t, provider.batches[2], 2)
+		}
+		got := deps.reload(t, job.ID)
+		assert.Equal(t, model.CdnPurgeStatusSucceeded, got.Status)
+		assert.Equal(t, 4, got.Purged)
 	})
 
 	t.Run("successRecordsTheActivity", func(t *testing.T) {
@@ -677,5 +710,36 @@ func TestCdnPurgeWorker_PurgeExpiredJobs(t *testing.T) {
 
 		assert.NoError(t, err)
 		assert.Equal(t, int64(0), purged)
+	})
+}
+
+func TestCdnPurgeWorker_limiter(t *testing.T) {
+	t.Run("successCountsTargetsByDefault", func(t *testing.T) {
+		worker := NewCdnPurgeWorker(appContext.TestContext(nil), nil, nil, nil, nil).(*cdnPurgeWorker)
+
+		limiter := worker.limiter(1, cdn.KindURL, cdn.Limits{MaxTargetsPerRequest: 100, TargetsPerSecond: 1500})
+
+		assert.Equal(t, rate.Limit(1500), limiter.Limit())
+		assert.Equal(t, 1500, limiter.Burst())
+	})
+
+	t.Run("successCountsRequestsWhenTheQuotaIsInRequests", func(t *testing.T) {
+		worker := NewCdnPurgeWorker(appContext.TestContext(nil), nil, nil, nil, nil).(*cdnPurgeWorker)
+
+		limiter := worker.limiter(1, cdn.KindPrefix, cdn.Limits{MaxTargetsPerRequest: 100, RequestsPerSecond: 10, Burst: 50})
+
+		assert.Equal(t, rate.Limit(10), limiter.Limit())
+		assert.Equal(t, 50, limiter.Burst())
+	})
+
+	t.Run("successKeepsOneLimiterPerConfigurationAndKind", func(t *testing.T) {
+		worker := NewCdnPurgeWorker(appContext.TestContext(nil), nil, nil, nil, nil).(*cdnPurgeWorker)
+		limits := cdn.Limits{MaxTargetsPerRequest: 100, TargetsPerSecond: 1500}
+
+		url := worker.limiter(1, cdn.KindURL, limits)
+
+		assert.Same(t, url, worker.limiter(1, cdn.KindURL, limits))
+		assert.NotSame(t, url, worker.limiter(1, cdn.KindPrefix, limits))
+		assert.NotSame(t, url, worker.limiter(2, cdn.KindURL, limits))
 	})
 }

@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"regexp/syntax"
 	"testing"
 
@@ -329,6 +330,232 @@ func TestRedirectTree_Match(t *testing.T) {
 	}
 }
 
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+func TestRedirectTree_Match_QueryString(t *testing.T) {
+	ignore := RedirectOptions{IgnoreQueryString: boolPtr(true)}
+	preserve := RedirectOptions{PreserveQueryString: boolPtr(true)}
+	ignoreAndPreserve := RedirectOptions{IgnoreQueryString: boolPtr(true), PreserveQueryString: boolPtr(true)}
+
+	tests := []struct {
+		name       string
+		redirects  []*Redirect
+		host       string
+		uri        string
+		wantSource string
+		wantTarget string
+	}{
+		{
+			name: "basic without options does not match with a query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/new"},
+			},
+			host:       "example.com",
+			uri:        "/old?utm_source=nl",
+			wantSource: "",
+			wantTarget: "",
+		},
+		{
+			name: "basic with ignore false does not match with a query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/new", Options: RedirectOptions{IgnoreQueryString: boolPtr(false)}},
+			},
+			host:       "example.com",
+			uri:        "/old?utm_source=nl",
+			wantSource: "",
+			wantTarget: "",
+		},
+		{
+			name: "basic ignoring query string matches with a query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/new", Options: ignore},
+			},
+			host:       "example.com",
+			uri:        "/old?utm_source=nl",
+			wantSource: "/old",
+			wantTarget: "/new",
+		},
+		{
+			name: "basic ignoring query string matches without a query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/new", Options: ignore},
+			},
+			host:       "example.com",
+			uri:        "/old",
+			wantSource: "/old",
+			wantTarget: "/new",
+		},
+		{
+			name: "basic ignoring query string matches an empty query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/new", Options: ignoreAndPreserve},
+			},
+			host:       "example.com",
+			uri:        "/old?",
+			wantSource: "/old",
+			wantTarget: "/new",
+		},
+		{
+			name: "basic host ignoring query string matches with a query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasicHost, Source: "example.com/old", Target: "https://example.com/new", Options: ignore},
+			},
+			host:       "example.com",
+			uri:        "/old?utm_source=nl",
+			wantSource: "example.com/old",
+			wantTarget: "https://example.com/new",
+		},
+		{
+			name: "exact rule with query string wins over a rule ignoring it",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/ignore", Options: ignore},
+				{Type: RedirectTypeBasic, Source: "/old?x=1", Target: "/exact"},
+			},
+			host:       "example.com",
+			uri:        "/old?x=1",
+			wantSource: "/old?x=1",
+			wantTarget: "/exact",
+		},
+		{
+			name: "exact basic wins over basic host ignoring query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasicHost, Source: "example.com/old", Target: "https://example.com/host", Options: ignore},
+				{Type: RedirectTypeBasic, Source: "/old?x=1", Target: "/exact"},
+			},
+			host:       "example.com",
+			uri:        "/old?x=1",
+			wantSource: "/old?x=1",
+			wantTarget: "/exact",
+		},
+		{
+			name: "basic host ignoring query string wins over basic ignoring it",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/basic", Options: ignore},
+				{Type: RedirectTypeBasicHost, Source: "example.com/old", Target: "https://example.com/host", Options: ignore},
+			},
+			host:       "example.com",
+			uri:        "/old?x=1",
+			wantSource: "example.com/old",
+			wantTarget: "https://example.com/host",
+		},
+		{
+			name: "basic ignoring query string wins over a regex",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegex, Source: "^/old.*", Target: "/regex"},
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/basic", Options: ignore},
+			},
+			host:       "example.com",
+			uri:        "/old?x=1",
+			wantSource: "/old",
+			wantTarget: "/basic",
+		},
+		{
+			name: "regex still matches when no basic ignores the query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegex, Source: "^/old.*", Target: "/regex"},
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/basic"},
+			},
+			host:       "example.com",
+			uri:        "/old?x=1",
+			wantSource: "^/old.*",
+			wantTarget: "/regex",
+		},
+		{
+			name: "ignore and preserve forwards the query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/new", Options: ignoreAndPreserve},
+			},
+			host:       "example.com",
+			uri:        "/old?utm_source=nl&utm_medium=email",
+			wantSource: "/old",
+			wantTarget: "/new?utm_source=nl&utm_medium=email",
+		},
+		{
+			name: "preserve on an exact match forwards the query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old?x=1", Target: "/new", Options: preserve},
+			},
+			host:       "example.com",
+			uri:        "/old?x=1",
+			wantSource: "/old?x=1",
+			wantTarget: "/new?x=1",
+		},
+		{
+			name: "preserve without a query string leaves the target untouched",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasic, Source: "/old", Target: "/new#top", Options: preserve},
+			},
+			host:       "example.com",
+			uri:        "/old",
+			wantSource: "/old",
+			wantTarget: "/new#top",
+		},
+		{
+			name: "preserve on basic host merges with the target query string",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasicHost, Source: "example.com/old", Target: "https://example.com/new?lang=fr#top", Options: ignoreAndPreserve},
+			},
+			host:       "example.com",
+			uri:        "/old?utm_source=nl",
+			wantSource: "example.com/old",
+			wantTarget: "https://example.com/new?lang=fr&utm_source=nl#top",
+		},
+		{
+			name: "basic host ignoring query string does not match another host",
+			redirects: []*Redirect{
+				{Type: RedirectTypeBasicHost, Source: "example.com/old", Target: "https://example.com/new", Options: ignore},
+			},
+			host:       "other.com",
+			uri:        "/old?utm_source=nl",
+			wantSource: "",
+			wantTarget: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := NewRedirectTreeMatcher()
+			for _, r := range tt.redirects {
+				assert.NoError(t, tree.Insert(r))
+			}
+
+			gotRedirect, gotTarget := tree.Match(tt.host, tt.uri)
+
+			if tt.wantSource == "" {
+				assert.Nil(t, gotRedirect)
+			} else if assert.NotNil(t, gotRedirect) {
+				assert.Equal(t, tt.wantSource, gotRedirect.Source)
+			}
+			assert.Equal(t, tt.wantTarget, gotTarget)
+		})
+	}
+}
+
+func BenchmarkRedirectTree_Match(b *testing.B) {
+	ignore := RedirectOptions{IgnoreQueryString: boolPtr(true), PreserveQueryString: boolPtr(true)}
+	tree := NewRedirectTreeMatcher()
+	for i := 0; i < 3000; i++ {
+		_ = tree.Insert(&Redirect{Type: RedirectTypeBasic, Source: fmt.Sprintf("/blog/article-%d.html", i), Target: fmt.Sprintf("/new/article-%d", i), Options: ignore})
+	}
+
+	uris := map[string]string{
+		"exact":                  "/blog/article-1500.html",
+		"ignored query string":   "/blog/article-1500.html?utm_source=nl&utm_medium=email",
+		"no match with query":    "/unknown.html?utm_source=nl",
+		"no match without query": "/unknown.html",
+	}
+	for name, uri := range uris {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				tree.Match("example.com", uri)
+			}
+		})
+	}
+}
+
 func Test_resolveTarget(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -635,9 +862,20 @@ func TestRedirectTree_matchRegex(t *testing.T) {
 		name         string
 		redirects    []*Redirect
 		input        string
+		rawQuery     string
 		wantRedirect bool
 		wantTarget   string
 	}{
+		{
+			name: "preserve query string appends it to the resolved target",
+			redirects: []*Redirect{
+				{Type: RedirectTypeRegex, Source: "^/product/([0-9]+)", Target: "/item/$1", Status: RedirectStatusMovedPermanent, Options: RedirectOptions{PreserveQueryString: boolPtr(true)}},
+			},
+			input:        "/product/123?utm_source=nl",
+			rawQuery:     "utm_source=nl",
+			wantRedirect: true,
+			wantTarget:   "/item/123?utm_source=nl",
+		},
 		{
 			name: "match from tree bucket",
 			redirects: []*Redirect{
@@ -692,7 +930,7 @@ func TestRedirectTree_matchRegex(t *testing.T) {
 				assert.NoError(t, tree.Insert(r))
 			}
 
-			gotRedirect, gotTarget := tree.matchRegex(tree.regex, tree.regexRoot, tt.input)
+			gotRedirect, gotTarget := tree.matchRegex(tree.regex, tree.regexRoot, tt.input, tt.rawQuery)
 
 			if tt.wantRedirect {
 				assert.NotNil(t, gotRedirect)

@@ -59,7 +59,7 @@ above.
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
 | `flecto_cdn_purge_jobs_total` | Counter | `provider`, `status` | Finished purge jobs, by status: `SUCCEEDED`, `PARTIAL`, `FAILED` or `SKIPPED` |
-| `flecto_cdn_purge_targets_total` | Counter | `provider`, `outcome` | URLs `purged` or `failed`, and entries `skipped` because they could not be purged |
+| `flecto_cdn_purge_targets_total` | Counter | `provider`, `outcome` | URLs `purged` or `failed` (a prefix counting as one), and entries `skipped` because they could not be purged |
 | `flecto_cdn_purge_job_duration_seconds` | Histogram | `provider` | Time spent sending a job, from the moment it stops waiting for the agents to the end |
 
 ## Alerting

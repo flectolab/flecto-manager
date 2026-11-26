@@ -21,6 +21,24 @@ func TestNewRedirectSnapshot(t *testing.T) {
 		assert.Equal(t, "/old", snapshot.Source)
 		assert.Equal(t, "/new", snapshot.Target)
 		assert.Equal(t, commonTypes.RedirectStatusMovedPermanent, snapshot.Status)
+		assert.Nil(t, snapshot.Options)
+	})
+
+	t.Run("keeps the options when one is set", func(t *testing.T) {
+		ignore := true
+		snapshot := NewRedirectSnapshot(&commonTypes.Redirect{
+			Type:    commonTypes.RedirectTypeBasic,
+			Source:  "/old",
+			Options: commonTypes.RedirectOptions{IgnoreQueryString: &ignore},
+		})
+
+		if assert.NotNil(t, snapshot.Options) {
+			assert.True(t, snapshot.Options.IsIgnoreQueryString())
+		}
+
+		out, err := json.Marshal(snapshot)
+		assert.NoError(t, err)
+		assert.Contains(t, string(out), `"options":{"ignoreQueryString":true}`)
 	})
 
 	t.Run("nil in, nil out", func(t *testing.T) {

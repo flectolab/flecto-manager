@@ -49,10 +49,16 @@ type cdnPurgeWorker struct {
 	agentRepo  repository.AgentRepository
 	activity   ActivityService
 
-	// limiters are per configuration: two configurations on the same CDN account
-	// share a quota this cannot see, acceptable since jobs run one at a time.
+	// limiters are per configuration and kind of target: two configurations on
+	// the same CDN account share a quota this cannot see, acceptable since jobs
+	// run one at a time.
 	limitersMutex sync.Mutex
-	limiters      map[int64]*rate.Limiter
+	limiters      map[limiterKey]*rate.Limiter
+}
+
+type limiterKey struct {
+	configID int64
+	kind     cdn.TargetKind
 }
 
 func NewCdnPurgeWorker(
@@ -68,7 +74,7 @@ func NewCdnPurgeWorker(
 		configRepo: configRepo,
 		agentRepo:  agentRepo,
 		activity:   activity,
-		limiters:   map[int64]*rate.Limiter{},
+		limiters:   map[limiterKey]*rate.Limiter{},
 	}
 }
 
@@ -184,14 +190,19 @@ func (w *cdnPurgeWorker) readyToPurge(ctx context.Context, job *model.ProjectCdn
 
 func (w *cdnPurgeWorker) send(ctx context.Context, job *model.ProjectCdnPurgeJob, provider cdn.Provider) (bool, error) {
 	limits := provider.Limits()
-	limiter := w.limiter(job.CdnConfigID, limits)
 
-	for _, batch := range cdn.Batch(job.Remaining(), limits.MaxTargetsPerRequest) {
+	for _, batch := range cdn.Batch(job.Remaining(), limits) {
 		if ctx.Err() != nil {
 			return false, nil
 		}
 
-		if err := limiter.WaitN(ctx, len(batch)); err != nil {
+		kind := batch[0].Kind
+		kindLimits := limits.For(kind)
+		tokens := len(batch)
+		if kindLimits.RequestsPerSecond > 0 {
+			tokens = 1
+		}
+		if err := w.limiter(job.CdnConfigID, kind, kindLimits).WaitN(ctx, tokens); err != nil {
 			return false, nil
 		}
 
@@ -349,14 +360,26 @@ func recordCdnPurgeOutcome(
 	}
 }
 
-// limiter returns the rate limiter of a configuration. It counts targets, not
-// requests, as Cloudflare's purge quota is in URLs per second.
-func (w *cdnPurgeWorker) limiter(configID int64, limits cdn.Limits) *rate.Limiter {
+// limiter returns the rate limiter of a configuration for a kind of target. It
+// counts targets, as Cloudflare's purge by URL quota is in URLs per second,
+// unless the limits are in requests, like its prefix purge quota.
+func (w *cdnPurgeWorker) limiter(configID int64, kind cdn.TargetKind, limits cdn.Limits) *rate.Limiter {
 	w.limitersMutex.Lock()
 	defer w.limitersMutex.Unlock()
 
-	if existing, ok := w.limiters[configID]; ok {
+	key := limiterKey{configID: configID, kind: kind}
+	if existing, ok := w.limiters[key]; ok {
 		return existing
+	}
+
+	if limits.RequestsPerSecond > 0 {
+		burst := limits.Burst
+		if burst <= 0 {
+			burst = 1
+		}
+		limiter := rate.NewLimiter(rate.Limit(limits.RequestsPerSecond), burst)
+		w.limiters[key] = limiter
+		return limiter
 	}
 
 	perSecond := limits.TargetsPerSecond
@@ -373,7 +396,7 @@ func (w *cdnPurgeWorker) limiter(configID int64, limits cdn.Limits) *rate.Limite
 	}
 
 	limiter := rate.NewLimiter(rate.Limit(perSecond), burst)
-	w.limiters[configID] = limiter
+	w.limiters[key] = limiter
 	return limiter
 }
 

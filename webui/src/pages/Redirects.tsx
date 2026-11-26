@@ -25,11 +25,13 @@ import { SortableHeader, parseSortsFromUrl, serializeSortsToUrl } from '../compo
 import {
   RedirectStatusBadge,
   RedirectTypeBadge,
+  RedirectOptionsBadges,
   DraftBadge,
   ConfirmModal,
   DiffModal,
   ImportModal,
 } from '../components/redirects'
+import type { RedirectOptionsValue } from '../components/redirects/redirectOptions'
 import { PathCell } from '../components/PathCell'
 import { OverlayLoader } from '../components/OverlayLoader'
 
@@ -377,7 +379,9 @@ export function Redirects() {
     }
   }
 
-  const getDisplayData = (redirect: RedirectWithDraft): { type: RedirectType; source: string; target: string; status: RedirectStatus } => {
+  const getDisplayData = (
+    redirect: RedirectWithDraft,
+  ): { type: RedirectType; source: string; target: string; status: RedirectStatus; options: RedirectOptionsValue } => {
     const changeType = redirect.redirectDraft?.changeType
 
     // For CREATE and UPDATE drafts, show the new values from the draft
@@ -391,6 +395,7 @@ export function Redirects() {
       source: redirect.source ?? '',
       target: redirect.target ?? '',
       status: redirect.status,
+      options: redirect.options,
     }
   }
 
@@ -687,7 +692,10 @@ export function Redirects() {
                       <RedirectTypeBadge type={displayData.type} />
                     </td>
                     <td className="px-6 py-4">
-                      <PathCell value={displayData.source} className="text-slate-900 dark:text-white" />
+                      <div className="flex items-center gap-2 min-w-0">
+                        <PathCell value={displayData.source} className="text-slate-900 dark:text-white" />
+                        <RedirectOptionsBadges options={displayData.options} />
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <PathCell value={displayData.target} className="text-slate-600 dark:text-slate-400" />
@@ -902,6 +910,7 @@ export function Redirects() {
             source: diffView.source ?? '',
             target: diffView.target ?? '',
             status: diffView.status,
+            options: diffView.options,
           }}
           newData={diffView.redirectDraft.newRedirect}
           onClose={() => setDiffView(null)}

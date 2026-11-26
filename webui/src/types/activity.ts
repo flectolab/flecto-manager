@@ -21,6 +21,11 @@ export interface RedirectSnapshot {
   source: string
   target: string
   status: string
+  // Left out of the payload when no option is set.
+  options?: {
+    ignoreQueryString?: boolean | null
+    preserveQueryString?: boolean | null
+  }
 }
 
 export interface ActivityCdnPurge {

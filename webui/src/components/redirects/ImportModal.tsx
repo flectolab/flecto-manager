@@ -30,6 +30,7 @@ const errorReasonLabels: Record<ImportErrorReason, string> = {
   'INVALID_STATUS': 'Invalid status',
   'EMPTY_SOURCE': 'Empty source',
   'EMPTY_TARGET': 'Empty target',
+  'INVALID_OPTIONS': 'Invalid options',
   'DUPLICATE_SOURCE_IN_FILE': 'Duplicate in file',
   'SOURCE_ALREADY_EXISTS': 'Source exists',
   'DATABASE_ERROR': 'Database error',
@@ -354,6 +355,11 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess, on
                             ))}
                           </div>
                         </div>
+                        <div>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">Optional header:</span>
+                          <span className="ml-2 px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-600 text-slate-700 dark:text-slate-300 font-mono text-xs">options</span>
+                          <span className="ml-2 text-slate-500 dark:text-slate-400">(5th column, its cells may be left empty)</span>
+                        </div>
                       </div>
                     </div>
 
@@ -386,6 +392,19 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess, on
                             ))}
                           </div>
                         </div>
+                        <div>
+                          <span className="font-medium text-slate-700 dark:text-slate-300">options:</span>
+                          <span className="ml-2 text-slate-600 dark:text-slate-400">
+                            comma separated <span className="font-mono text-xs">key=true|false</span>, BASIC and BASIC_HOST only. An option left out is not set.
+                          </span>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {['ignoreQueryString', 'preserveQueryString'].map((option) => (
+                              <span key={option} className="px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 font-mono text-xs">
+                                {option}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -414,7 +433,8 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess, on
                               <th className="text-left py-2 pr-4 text-slate-600 dark:text-slate-400">type</th>
                               <th className="text-left py-2 pr-4 text-slate-600 dark:text-slate-400">source</th>
                               <th className="text-left py-2 pr-4 text-slate-600 dark:text-slate-400">target</th>
-                              <th className="text-left py-2 text-slate-600 dark:text-slate-400">status</th>
+                              <th className="text-left py-2 pr-4 text-slate-600 dark:text-slate-400">status</th>
+                              <th className="text-left py-2 text-slate-600 dark:text-slate-400">options</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-200 dark:divide-slate-700">
@@ -422,25 +442,29 @@ export function ImportModal({ namespaceCode, projectCode, onClose, onSuccess, on
                               <td className="py-2 pr-4 text-purple-600 dark:text-purple-400">BASIC</td>
                               <td className="py-2 pr-4 text-slate-700 dark:text-slate-300">/old-page</td>
                               <td className="py-2 pr-4 text-slate-700 dark:text-slate-300">/new-page</td>
-                              <td className="py-2 text-cyan-600 dark:text-cyan-400">301</td>
+                              <td className="py-2 pr-4 text-cyan-600 dark:text-cyan-400">301</td>
+                              <td className="py-2 text-emerald-600 dark:text-emerald-400">ignoreQueryString=true,preserveQueryString=true</td>
                             </tr>
                             <tr>
                               <td className="py-2 pr-4 text-purple-600 dark:text-purple-400">BASIC_HOST</td>
                               <td className="py-2 pr-4 text-slate-700 dark:text-slate-300">old.example.com/path</td>
                               <td className="py-2 pr-4 text-slate-700 dark:text-slate-300">https://new.example.com/path</td>
-                              <td className="py-2 text-cyan-600 dark:text-cyan-400">MOVED_PERMANENT</td>
+                              <td className="py-2 pr-4 text-cyan-600 dark:text-cyan-400">MOVED_PERMANENT</td>
+                              <td className="py-2"></td>
                             </tr>
                             <tr>
                               <td className="py-2 pr-4 text-purple-600 dark:text-purple-400">REGEX</td>
                               <td className="py-2 pr-4 text-slate-700 dark:text-slate-300">/product/([0-9]+)</td>
                               <td className="py-2 pr-4 text-slate-700 dark:text-slate-300">/item/$1</td>
-                              <td className="py-2 text-cyan-600 dark:text-cyan-400">302</td>
+                              <td className="py-2 pr-4 text-cyan-600 dark:text-cyan-400">302</td>
+                              <td className="py-2"></td>
                             </tr>
                             <tr>
                               <td className="py-2 pr-4 text-purple-600 dark:text-purple-400">REGEX_HOST</td>
                               <td className="py-2 pr-4 text-slate-700 dark:text-slate-300">([a-z]+).old.com/(.*)</td>
                               <td className="py-2 pr-4 text-slate-700 dark:text-slate-300">https://$1.new.com/$2</td>
-                              <td className="py-2 text-cyan-600 dark:text-cyan-400">308</td>
+                              <td className="py-2 pr-4 text-cyan-600 dark:text-cyan-400">308</td>
+                              <td className="py-2"></td>
                             </tr>
                           </tbody>
                         </table>

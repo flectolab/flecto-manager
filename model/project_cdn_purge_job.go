@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/flectolab/flecto-manager/cdn"
+	commonTypes "github.com/flectolab/flecto-manager/common/types"
 )
 
 // ResourceAddress is a redirect or page reduced to its address, so a large
@@ -12,6 +13,8 @@ type ResourceAddress struct {
 	ID     int64
 	Type   string
 	Source string
+	// Options is only read for redirects.
+	Options commonTypes.RedirectOptions `gorm:"serializer:json"`
 }
 
 // CdnPurgeStatus is where a purge job stands.
